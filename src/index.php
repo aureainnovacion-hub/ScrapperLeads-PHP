@@ -13,8 +13,8 @@ error_reporting(E_ALL);
 ini_set('display_errors', 0);
 ini_set('log_errors', 1);
 
-// Autoloader
-require_once __DIR__ . '/../vendor/autoload.php';
+// Autoloader manual
+require_once __DIR__ . '/config/config.php';
 
 // Configuración
 use ScrapperLeads\Config\Config;
