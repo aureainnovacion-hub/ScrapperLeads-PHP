@@ -1,283 +1,252 @@
 <?php
 
 /**
- * Script de Migración de Base de Datos
- * Crea las tablas necesarias para el sistema ScrapperLeads
+ * Script de Migración de Base de Datos - ScrapperLeads Pro
+ * Crea las tablas necesarias para el funcionamiento de la aplicación
+ * Hosting: Dinahosting MariaDB 11.4
  */
 
 require_once __DIR__ . '/../config/config.php';
 
 use ScrapperLeads\Config\Config;
 
-try {
-    $config = Config::getInstance();
-    
-    echo "🗄️ Iniciando migración de base de datos...\n";
-    
-    // Conectar a la base de datos
-    $dsn = sprintf(
-        "mysql:host=%s;port=%s;charset=%s",
-        $config->get('database.host'),
-        $config->get('database.port', 3306),
-        $config->get('database.charset', 'utf8mb4')
-    );
-    
-    $pdo = new PDO(
-        $dsn,
-        $config->get('database.user'),
-        $config->get('database.password'),
-        [
-            PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-            PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-            PDO::MYSQL_ATTR_INIT_COMMAND => "SET NAMES " . $config->get('database.charset', 'utf8mb4')
-        ]
-    );
-    
-    // Crear base de datos si no existe
-    $dbName = $config->get('database.name');
-    $pdo->exec("CREATE DATABASE IF NOT EXISTS `{$dbName}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
-    $pdo->exec("USE `{$dbName}`");
-    
-    echo "✅ Conectado a la base de datos: {$dbName}\n";
-    
-    // Obtener prefijo de tablas
-    $prefix = $config->get('database.prefix', 'sl_');
-    
-    // Crear tabla de leads
-    createLeadsTable($pdo, $prefix);
-    
-    // Crear tabla de sesiones de scraping
-    createScrapingSessionsTable($pdo, $prefix);
-    
-    // Crear tabla de configuraciones
-    createConfigTable($pdo, $prefix);
-    
-    // Crear tabla de logs
-    createLogsTable($pdo, $prefix);
-    
-    // Insertar datos iniciales
-    insertInitialData($pdo, $prefix);
-    
-    echo "🎉 Migración completada exitosamente!\n";
-    
-} catch (Exception $e) {
-    echo "❌ Error en la migración: " . $e->getMessage() . "\n";
-    exit(1);
-}
-
-/**
- * Crea la tabla de leads
- */
-function createLeadsTable(PDO $pdo, string $prefix): void
+class DatabaseMigration
 {
-    echo "📋 Creando tabla de leads...\n";
-    
-    $sql = "
-    CREATE TABLE IF NOT EXISTS `{$prefix}leads` (
-        `id` int(11) NOT NULL AUTO_INCREMENT,
-        `session_id` varchar(100) NOT NULL,
-        `empresa` varchar(255) NOT NULL,
-        `url` text,
-        `descripcion` text,
-        `telefono` varchar(50),
-        `email` varchar(255),
-        `direccion` text,
-        `empleados` varchar(50),
-        `facturacion` varchar(50),
-        `sector` varchar(100),
-        `provincia` varchar(100),
-        `region` varchar(100),
-        `fecha_captura` datetime NOT NULL,
-        `fuente` varchar(100) NOT NULL DEFAULT 'Google Search',
-        `estado` enum('activo','inactivo','verificado') NOT NULL DEFAULT 'activo',
-        `notas` text,
-        `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        `updated_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-        PRIMARY KEY (`id`),
-        KEY `idx_session_id` (`session_id`),
-        KEY `idx_empresa` (`empresa`),
-        KEY `idx_sector` (`sector`),
-        KEY `idx_provincia` (`provincia`),
-        KEY `idx_fecha_captura` (`fecha_captura`),
-        KEY `idx_estado` (`estado`)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-    ";
-    
-    $pdo->exec($sql);
-    echo "✅ Tabla de leads creada\n";
-}
+    private $pdo;
+    private $config;
 
-/**
- * Crea la tabla de sesiones de scraping
- */
-function createScrapingSessionsTable(PDO $pdo, string $prefix): void
-{
-    echo "🔄 Creando tabla de sesiones de scraping...\n";
-    
-    $sql = "
-    CREATE TABLE IF NOT EXISTS `{$prefix}scraping_sessions` (
-        `id` int(11) NOT NULL AUTO_INCREMENT,
-        `session_id` varchar(100) NOT NULL UNIQUE,
-        `parametros` json NOT NULL,
-        `estado` enum('iniciado','en_progreso','completado','error') NOT NULL DEFAULT 'iniciado',
-        `progreso` decimal(5,2) NOT NULL DEFAULT 0.00,
-        `mensaje_progreso` varchar(255),
-        `total_encontrados` int(11) NOT NULL DEFAULT 0,
-        `total_procesados` int(11) NOT NULL DEFAULT 0,
-        `tiempo_inicio` datetime NOT NULL,
-        `tiempo_fin` datetime,
-        `ip_cliente` varchar(45),
-        `user_agent` text,
-        `error_mensaje` text,
-        `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        `updated_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-        PRIMARY KEY (`id`),
-        UNIQUE KEY `idx_session_id` (`session_id`),
-        KEY `idx_estado` (`estado`),
-        KEY `idx_tiempo_inicio` (`tiempo_inicio`)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-    ";
-    
-    $pdo->exec($sql);
-    echo "✅ Tabla de sesiones de scraping creada\n";
-}
-
-/**
- * Crea la tabla de configuraciones
- */
-function createConfigTable(PDO $pdo, string $prefix): void
-{
-    echo "⚙️ Creando tabla de configuraciones...\n";
-    
-    $sql = "
-    CREATE TABLE IF NOT EXISTS `{$prefix}config` (
-        `id` int(11) NOT NULL AUTO_INCREMENT,
-        `clave` varchar(100) NOT NULL UNIQUE,
-        `valor` text,
-        `descripcion` varchar(255),
-        `tipo` enum('string','integer','boolean','json') NOT NULL DEFAULT 'string',
-        `categoria` varchar(50) NOT NULL DEFAULT 'general',
-        `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        `updated_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-        PRIMARY KEY (`id`),
-        UNIQUE KEY `idx_clave` (`clave`),
-        KEY `idx_categoria` (`categoria`)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-    ";
-    
-    $pdo->exec($sql);
-    echo "✅ Tabla de configuraciones creada\n";
-}
-
-/**
- * Crea la tabla de logs
- */
-function createLogsTable(PDO $pdo, string $prefix): void
-{
-    echo "📝 Creando tabla de logs...\n";
-    
-    $sql = "
-    CREATE TABLE IF NOT EXISTS `{$prefix}logs` (
-        `id` int(11) NOT NULL AUTO_INCREMENT,
-        `nivel` enum('DEBUG','INFO','WARNING','ERROR','CRITICAL') NOT NULL,
-        `mensaje` text NOT NULL,
-        `contexto` json,
-        `session_id` varchar(100),
-        `ip_cliente` varchar(45),
-        `user_agent` text,
-        `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        PRIMARY KEY (`id`),
-        KEY `idx_nivel` (`nivel`),
-        KEY `idx_session_id` (`session_id`),
-        KEY `idx_created_at` (`created_at`)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-    ";
-    
-    $pdo->exec($sql);
-    echo "✅ Tabla de logs creada\n";
-}
-
-/**
- * Inserta datos iniciales
- */
-function insertInitialData(PDO $pdo, string $prefix): void
-{
-    echo "📊 Insertando datos iniciales...\n";
-    
-    // Configuraciones iniciales
-    $configs = [
-        [
-            'clave' => 'app_version',
-            'valor' => '1.0.0',
-            'descripcion' => 'Versión de la aplicación',
-            'tipo' => 'string',
-            'categoria' => 'sistema'
-        ],
-        [
-            'clave' => 'max_results_per_search',
-            'valor' => '100',
-            'descripcion' => 'Máximo número de resultados por búsqueda',
-            'tipo' => 'integer',
-            'categoria' => 'scraper'
-        ],
-        [
-            'clave' => 'default_delay_seconds',
-            'valor' => '1',
-            'descripcion' => 'Delay por defecto entre requests (segundos)',
-            'tipo' => 'integer',
-            'categoria' => 'scraper'
-        ],
-        [
-            'clave' => 'enable_logging',
-            'valor' => 'true',
-            'descripcion' => 'Habilitar sistema de logging',
-            'tipo' => 'boolean',
-            'categoria' => 'sistema'
-        ],
-        [
-            'clave' => 'sectores_disponibles',
-            'valor' => json_encode([
-                'tecnologia' => 'Tecnología',
-                'construccion' => 'Construcción',
-                'salud' => 'Salud',
-                'educacion' => 'Educación',
-                'finanzas' => 'Finanzas',
-                'retail' => 'Retail / Comercio',
-                'industria' => 'Industria',
-                'servicios' => 'Servicios'
-            ]),
-            'descripcion' => 'Sectores empresariales disponibles',
-            'tipo' => 'json',
-            'categoria' => 'filtros'
-        ]
-    ];
-    
-    $stmt = $pdo->prepare("
-        INSERT IGNORE INTO `{$prefix}config` 
-        (clave, valor, descripcion, tipo, categoria) 
-        VALUES (?, ?, ?, ?, ?)
-    ");
-    
-    foreach ($configs as $config) {
-        $stmt->execute([
-            $config['clave'],
-            $config['valor'],
-            $config['descripcion'],
-            $config['tipo'],
-            $config['categoria']
-        ]);
+    public function __construct()
+    {
+        $this->config = Config::getInstance();
+        $this->connectDatabase();
     }
-    
-    echo "✅ Datos iniciales insertados\n";
+
+    private function connectDatabase()
+    {
+        try {
+            // Configuración específica para Dinahosting
+            $dsn = sprintf(
+                'mysql:host=%s;dbname=%s;charset=%s',
+                'localhost', // Dinahosting usa localhost
+                'eduai_scrapperleads', // Nombre completo de la BD
+                'utf8mb4'
+            );
+
+            $this->pdo = new PDO(
+                $dsn,
+                'eduai_', // Usuario de la BD
+                'Mm492557**', // Contraseña de la BD
+                [
+                    PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+                    PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+                    PDO::MYSQL_ATTR_INIT_COMMAND => "SET NAMES utf8mb4",
+                    PDO::ATTR_TIMEOUT => 30
+                ]
+            );
+
+            echo "✅ Conexión a base de datos MariaDB establecida\n";
+        } catch (PDOException $e) {
+            die("❌ Error de conexión: " . $e->getMessage() . "\n");
+        }
+    }
+
+    public function migrate()
+    {
+        echo "🚀 Iniciando migración de base de datos ScrapperLeads...\n";
+        echo "📊 Base de datos: eduai_scrapperleads (MariaDB 11.4)\n";
+        echo "🏠 Hosting: Dinahosting\n\n";
+
+        try {
+            // Ejecutar el esquema SQL completo
+            $this->executeSchemaFile();
+            
+            echo "\n🎉 Migración completada exitosamente\n";
+            echo "📈 Estadísticas de la base de datos:\n";
+            $this->showDatabaseStats();
+            
+        } catch (Exception $e) {
+            echo "❌ Error durante la migración: " . $e->getMessage() . "\n";
+            throw $e;
+        }
+    }
+
+    private function executeSchemaFile()
+    {
+        $schemaPath = __DIR__ . '/../../database/schema.sql';
+        
+        if (!file_exists($schemaPath)) {
+            throw new Exception("Archivo de esquema no encontrado: $schemaPath");
+        }
+
+        $sql = file_get_contents($schemaPath);
+        
+        if ($sql === false) {
+            throw new Exception("No se pudo leer el archivo de esquema");
+        }
+
+        echo "📄 Ejecutando esquema SQL completo...\n";
+
+        // Dividir el SQL en statements individuales
+        $statements = array_filter(
+            array_map('trim', explode(';', $sql)),
+            function($stmt) {
+                return !empty($stmt) && 
+                       !preg_match('/^--/', $stmt) && 
+                       !preg_match('/^\/\*/', $stmt);
+            }
+        );
+
+        $executed = 0;
+        foreach ($statements as $statement) {
+            if (trim($statement)) {
+                try {
+                    $this->pdo->exec($statement);
+                    $executed++;
+                } catch (PDOException $e) {
+                    // Ignorar errores de "ya existe" para permitir re-ejecuciones
+                    if (strpos($e->getMessage(), 'already exists') === false &&
+                        strpos($e->getMessage(), 'Duplicate') === false) {
+                        throw $e;
+                    }
+                }
+            }
+        }
+
+        echo "✅ Ejecutados $executed statements SQL\n";
+    }
+
+    private function showDatabaseStats()
+    {
+        try {
+            // Obtener estadísticas de tablas
+            $stmt = $this->pdo->query("
+                SELECT 
+                    TABLE_NAME as tabla,
+                    TABLE_ROWS as filas,
+                    ROUND(((DATA_LENGTH + INDEX_LENGTH) / 1024 / 1024), 2) as tamaño_mb
+                FROM information_schema.TABLES 
+                WHERE TABLE_SCHEMA = 'eduai_scrapperleads'
+                ORDER BY TABLE_NAME
+            ");
+            
+            $tables = $stmt->fetchAll();
+            
+            foreach ($tables as $table) {
+                echo "  📋 {$table['tabla']}: {$table['filas']} filas ({$table['tamaño_mb']} MB)\n";
+            }
+
+            // Verificar configuración inicial
+            $stmt = $this->pdo->query("SELECT COUNT(*) as total FROM system_config");
+            $configCount = $stmt->fetch()['total'];
+            echo "  ⚙️  Configuraciones del sistema: $configCount\n";
+
+        } catch (PDOException $e) {
+            echo "  ⚠️  No se pudieron obtener estadísticas: " . $e->getMessage() . "\n";
+        }
+    }
+
+    public function testConnection()
+    {
+        try {
+            $stmt = $this->pdo->query("SELECT VERSION() as version, NOW() as current_time");
+            $result = $stmt->fetch();
+            
+            echo "🔍 Test de conexión:\n";
+            echo "  📊 Versión MariaDB: " . $result['version'] . "\n";
+            echo "  🕐 Hora del servidor: " . $result['current_time'] . "\n";
+            echo "  ✅ Conexión exitosa\n";
+            
+            return true;
+        } catch (PDOException $e) {
+            echo "❌ Test de conexión falló: " . $e->getMessage() . "\n";
+            return false;
+        }
+    }
+
+    public function createSampleData()
+    {
+        echo "\n📝 Creando datos de ejemplo...\n";
+        
+        try {
+            // Crear una búsqueda de ejemplo
+            $searchUuid = uniqid('search_', true);
+            $stmt = $this->pdo->prepare("
+                INSERT INTO searches (search_uuid, keywords, sector, province, max_results, status) 
+                VALUES (?, 'consultoría tecnológica', 'Tecnología', 'Madrid', 10, 'completed')
+            ");
+            $stmt->execute([$searchUuid]);
+            $searchId = $this->pdo->lastInsertId();
+
+            // Crear algunos leads de ejemplo
+            $sampleLeads = [
+                [
+                    'TechConsult Madrid SL',
+                    'Juan Pérez',
+                    'Calle Gran Vía 123, Madrid',
+                    '+34 91 123 4567',
+                    'info@techconsult.es',
+                    'https://techconsult.es',
+                    '25',
+                    '1M-5M €',
+                    'Tecnología',
+                    'Madrid',
+                    'Centro',
+                    '2015-03-15'
+                ],
+                [
+                    'Innovación Digital SA',
+                    'María García',
+                    'Paseo de la Castellana 456, Madrid',
+                    '+34 91 987 6543',
+                    'contacto@innovaciondigital.com',
+                    'https://innovaciondigital.com',
+                    '50',
+                    '5M-10M €',
+                    'Tecnología',
+                    'Madrid',
+                    'Centro',
+                    '2012-07-22'
+                ]
+            ];
+
+            $stmt = $this->pdo->prepare("
+                INSERT INTO leads (
+                    search_id, company_name, contact_name, address, phone, email, 
+                    website, employees_count, revenue, sector, province, region, 
+                    founded_date, confidence_score, data_quality
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0.85, 'high')
+            ");
+
+            foreach ($sampleLeads as $lead) {
+                $stmt->execute(array_merge([$searchId], $lead));
+            }
+
+            echo "✅ Datos de ejemplo creados: 1 búsqueda, " . count($sampleLeads) . " leads\n";
+            
+        } catch (PDOException $e) {
+            echo "⚠️  Error creando datos de ejemplo: " . $e->getMessage() . "\n";
+        }
+    }
 }
 
-/**
- * Verifica si una tabla existe
- */
-function tableExists(PDO $pdo, string $tableName): bool
-{
-    $stmt = $pdo->prepare("SHOW TABLES LIKE ?");
-    $stmt->execute([$tableName]);
-    return $stmt->rowCount() > 0;
+// Ejecutar migración si se llama directamente
+if (basename(__FILE__) === basename($_SERVER['SCRIPT_NAME'])) {
+    echo "=== MIGRACIÓN DE BASE DE DATOS SCRAPPERLEADS PRO ===\n\n";
+    
+    $migration = new DatabaseMigration();
+    
+    // Test de conexión
+    if ($migration->testConnection()) {
+        // Ejecutar migración
+        $migration->migrate();
+        
+        // Crear datos de ejemplo (opcional)
+        if (isset($_GET['sample']) || (isset($argv[1]) && $argv[1] === '--sample')) {
+            $migration->createSampleData();
+        }
+        
+        echo "\n🎯 Migración completada. La base de datos está lista para ScrapperLeads Pro.\n";
+        echo "🌐 Accede a la aplicación en: http://eduaify.es\n";
+    }
 }
 

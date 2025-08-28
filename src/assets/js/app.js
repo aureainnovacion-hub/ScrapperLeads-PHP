@@ -1,540 +1,442 @@
 /**
  * ScrapperLeads Pro - JavaScript Principal
- * Maneja la interfaz dinámica y comunicación con la API
+ * Sistema profesional de captura de leads empresariales
  */
 
-class ScrapperLeadsApp {
+class ScrapperLeads {
     constructor() {
-        this.currentSessionId = null;
+        this.searchInProgress = false;
+        this.currentSearchId = null;
         this.progressInterval = null;
-        this.results = [];
         
-        this.initializeEventListeners();
-        this.initializeTooltips();
+        this.init();
     }
-    
-    /**
-     * Inicializa los event listeners
-     */
-    initializeEventListeners() {
+
+    init() {
+        console.log('🚀 ScrapperLeads Pro iniciado');
+        
+        // Inicializar Select2 para selección múltiple
+        this.initializeSelect2();
+        
+        // Configurar eventos
+        this.setupEventListeners();
+        
+        // Configurar notificaciones
+        this.setupNotifications();
+    }
+
+    initializeSelect2() {
+        // Inicializar Select2 para sectores
+        $('#sector').select2({
+            theme: 'bootstrap-5',
+            placeholder: 'Selecciona sectores empresariales',
+            allowClear: true,
+            closeOnSelect: false,
+            width: '100%'
+        });
+
+        // Inicializar Select2 para provincias
+        $('#provincia').select2({
+            theme: 'bootstrap-5',
+            placeholder: 'Selecciona provincias',
+            allowClear: true,
+            closeOnSelect: false,
+            width: '100%'
+        });
+
+        // Inicializar Select2 para regiones
+        $('#region').select2({
+            theme: 'bootstrap-5',
+            placeholder: 'Selecciona comunidades autónomas',
+            allowClear: true,
+            closeOnSelect: false,
+            width: '100%'
+        });
+    }
+
+    setupEventListeners() {
         // Formulario de búsqueda
-        const searchForm = document.getElementById('searchForm');
-        if (searchForm) {
-            searchForm.addEventListener('submit', (e) => this.handleSearchSubmit(e));
-        }
-        
-        // Botón de descarga CSV
-        const downloadBtn = document.getElementById('downloadCSV');
-        if (downloadBtn) {
-            downloadBtn.addEventListener('click', () => this.downloadCSV());
-        }
-        
+        $('#searchForm').on('submit', (e) => {
+            e.preventDefault();
+            this.startSearch();
+        });
+
         // Validación en tiempo real
-        const keywordsInput = document.getElementById('keywords');
-        if (keywordsInput) {
-            keywordsInput.addEventListener('input', () => this.validateForm());
-        }
-        
-        // Auto-guardar configuración
-        this.setupAutoSave();
+        $('#keywords').on('input', this.validateForm.bind(this));
+        $('#numResults').on('input', this.validateNumResults.bind(this));
+        $('#sector').on('change', this.validateForm.bind(this));
+        $('#provincia').on('change', this.validateForm.bind(this));
+        $('#region').on('change', this.validateForm.bind(this));
     }
-    
-    /**
-     * Maneja el envío del formulario de búsqueda
-     */
-    async handleSearchSubmit(event) {
-        event.preventDefault();
-        
-        if (!this.validateForm()) {
-            this.showAlert('Por favor, completa todos los campos requeridos.', 'warning');
-            return;
-        }
-        
-        const formData = this.getFormData();
-        
-        try {
-            this.showLoadingState();
-            await this.startScraping(formData);
-        } catch (error) {
-            this.hideLoadingState();
-            this.showAlert('Error al iniciar la búsqueda: ' + error.message, 'danger');
-            console.error('Error:', error);
-        }
-    }
-    
-    /**
-     * Obtiene los datos del formulario
-     */
-    getFormData() {
-        return {
-            keywords: document.getElementById('keywords').value.trim(),
-            sector: document.getElementById('sector').value,
-            provincia: document.getElementById('provincia').value,
-            region: document.getElementById('region').value,
-            empleados: document.getElementById('empleados').value,
-            facturacion: document.getElementById('facturacion').value,
-            numResults: parseInt(document.getElementById('numResults').value) || 20
+
+    setupNotifications() {
+        // Sistema de notificaciones personalizado
+        this.showNotification = (message, type = 'info', duration = 5000) => {
+            const alertClass = {
+                'success': 'alert-success',
+                'error': 'alert-danger',
+                'warning': 'alert-warning',
+                'info': 'alert-info'
+            }[type] || 'alert-info';
+
+            const notification = $(`
+                <div class="alert ${alertClass} alert-dismissible fade show notification-custom" role="alert">
+                    <i class="fas fa-${type === 'success' ? 'check-circle' : type === 'error' ? 'exclamation-triangle' : 'info-circle'} me-2"></i>
+                    ${message}
+                    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                </div>
+            `);
+
+            $('body').prepend(notification);
+
+            if (duration > 0) {
+                setTimeout(() => {
+                    notification.fadeOut(() => notification.remove());
+                }, duration);
+            }
         };
     }
-    
-    /**
-     * Valida el formulario
-     */
+
     validateForm() {
-        const keywords = document.getElementById('keywords').value.trim();
-        const numResults = parseInt(document.getElementById('numResults').value);
+        const sectors = $('#sector').val();
+        const provinces = $('#provincia').val();
+        const regions = $('#region').val();
+        const keywords = $('#keywords').val().trim();
         
-        // Validar palabras clave
-        if (!keywords || keywords.length < 3) {
-            this.highlightField('keywords', false);
-            return false;
-        }
-        this.highlightField('keywords', true);
+        // Al menos debe haber un filtro seleccionado
+        const hasFilters = (sectors && sectors.length > 0) || 
+                          (provinces && provinces.length > 0) || 
+                          (regions && regions.length > 0) || 
+                          keywords.length > 0;
         
-        // Validar número de resultados
-        if (!numResults || numResults < 1 || numResults > 100) {
-            this.highlightField('numResults', false);
-            return false;
-        }
-        this.highlightField('numResults', true);
+        $('#startSearch').prop('disabled', !hasFilters);
         
-        return true;
+        return hasFilters;
     }
-    
-    /**
-     * Resalta campos válidos/inválidos
-     */
-    highlightField(fieldId, isValid) {
-        const field = document.getElementById(fieldId);
-        if (field) {
-            field.classList.remove('is-valid', 'is-invalid');
-            field.classList.add(isValid ? 'is-valid' : 'is-invalid');
+
+    validateNumResults() {
+        const numResults = parseInt($('#numResults').val());
+        
+        if (numResults < 1) {
+            $('#numResults').val(1);
+        } else if (numResults > 1000) {
+            $('#numResults').val(1000);
+            this.showNotification('Máximo 1000 resultados permitidos', 'warning');
         }
     }
-    
-    /**
-     * Inicia el proceso de scraping
-     */
-    async startScraping(formData) {
+
+    async startSearch() {
+        if (this.searchInProgress) {
+            this.showNotification('Ya hay una búsqueda en progreso', 'warning');
+            return;
+        }
+
+        if (!this.validateForm()) {
+            this.showNotification('Debes seleccionar al menos un filtro de búsqueda', 'error');
+            return;
+        }
+
+        this.searchInProgress = true;
+        $('#startSearch').prop('disabled', true).html('<i class="fas fa-spinner fa-spin me-2"></i>Iniciando...');
+
         try {
-            const response = await fetch('/api/scraper.php/start', {
+            // Recopilar datos del formulario
+            const searchData = this.getFormData();
+            
+            // Mostrar panel de progreso
+            this.showProgressPanel();
+            
+            // Iniciar búsqueda
+            const response = await this.makeRequest('/api/scraper.php', {
                 method: 'POST',
+                body: JSON.stringify(searchData),
                 headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify(formData)
+                    'Content-Type': 'application/json'
+                }
             });
-            
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
-            }
-            
-            const data = await response.json();
-            
-            if (!data.success) {
-                throw new Error(data.error || 'Error desconocido');
-            }
-            
-            this.currentSessionId = data.sessionId;
-            this.results = data.results || [];
-            
-            // Mostrar resultados inmediatos si los hay
-            if (this.results.length > 0) {
-                this.displayResults();
-                this.hideLoadingState();
-                this.showAlert(`¡Búsqueda completada! Se encontraron ${this.results.length} leads.`, 'success');
-            } else {
-                // Iniciar monitoreo de progreso
+
+            if (response.success) {
+                this.currentSearchId = response.searchId;
+                this.showNotification('Búsqueda iniciada correctamente', 'success');
                 this.startProgressMonitoring();
+            } else {
+                throw new Error(response.message || 'Error al iniciar la búsqueda');
             }
-            
+
         } catch (error) {
-            console.error('Error en startScraping:', error);
-            throw error;
+            console.error('Error en búsqueda:', error);
+            this.showNotification(`Error: ${error.message}`, 'error');
+            this.resetSearchState();
         }
     }
-    
-    /**
-     * Inicia el monitoreo de progreso
-     */
-    startProgressMonitoring() {
-        if (this.progressInterval) {
-            clearInterval(this.progressInterval);
-        }
-        
+
+    getFormData() {
+        return {
+            keywords: $('#keywords').val().trim(),
+            sectors: $('#sector').val() || [],
+            provinces: $('#provincia').val() || [],
+            regions: $('#region').val() || [],
+            revenue: $('#facturacion').val(),
+            maxResults: parseInt($('#numResults').val()) || 20
+        };
+    }
+
+    showProgressPanel() {
+        const progressHtml = `
+            <div class="progress-container">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h5 class="mb-0">
+                        <i class="fas fa-search me-2"></i>
+                        Capturando Leads...
+                    </h5>
+                    <button class="btn btn-outline-danger btn-sm" onclick="scrapperLeads.stopSearch()">
+                        <i class="fas fa-stop me-1"></i>
+                        Detener
+                    </button>
+                </div>
+                
+                <div class="progress mb-3" style="height: 25px;">
+                    <div class="progress-bar progress-bar-striped progress-bar-animated" 
+                         role="progressbar" style="width: 0%" id="searchProgress">
+                        0%
+                    </div>
+                </div>
+                
+                <div class="row text-center">
+                    <div class="col-md-4">
+                        <div class="card bg-light">
+                            <div class="card-body py-2">
+                                <h6 class="card-title mb-1">Encontrados</h6>
+                                <span class="h4 text-primary" id="totalFound">0</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="card bg-light">
+                            <div class="card-body py-2">
+                                <h6 class="card-title mb-1">Procesados</h6>
+                                <span class="h4 text-success" id="totalProcessed">0</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="card bg-light">
+                            <div class="card-body py-2">
+                                <h6 class="card-title mb-1">Calidad</h6>
+                                <span class="h4 text-warning" id="avgQuality">-</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="mt-3">
+                    <small class="text-muted" id="progressMessage">Iniciando búsqueda...</small>
+                </div>
+            </div>
+        `;
+
+        $('#searchResults').html(progressHtml);
+    }
+
+    async startProgressMonitoring() {
         this.progressInterval = setInterval(async () => {
             try {
-                await this.checkProgress();
+                const response = await this.makeRequest(`/api/scraper.php?action=progress&searchId=${this.currentSearchId}`);
+                
+                if (response.success) {
+                    this.updateProgress(response.data);
+                    
+                    if (response.data.status === 'completed' || response.data.status === 'failed') {
+                        this.stopProgressMonitoring();
+                        this.handleSearchComplete(response.data);
+                    }
+                }
             } catch (error) {
-                console.error('Error checking progress:', error);
-                this.stopProgressMonitoring();
-                this.hideLoadingState();
-                this.showAlert('Error al monitorear el progreso.', 'warning');
+                console.error('Error monitoring progress:', error);
             }
-        }, 2000); // Verificar cada 2 segundos
+        }, 2000);
     }
-    
-    /**
-     * Verifica el progreso del scraping
-     */
-    async checkProgress() {
-        if (!this.currentSessionId) return;
+
+    updateProgress(data) {
+        const progress = Math.round(data.progress || 0);
         
-        const response = await fetch(`/api/scraper.php/progress?sessionId=${this.currentSessionId}`);
-        const data = await response.json();
-        
-        if (data.success && data.progress) {
-            this.updateProgressBar(data.progress.percentage, data.progress.message);
-            
-            // Si está completado, obtener resultados finales
-            if (data.progress.percentage >= 100) {
-                this.stopProgressMonitoring();
-                await this.getResults();
-            }
-        }
+        $('#searchProgress').css('width', `${progress}%`).text(`${progress}%`);
+        $('#totalFound').text(data.totalFound || 0);
+        $('#totalProcessed').text(data.resultsProcessed || 0);
+        $('#avgQuality').text(data.avgQuality ? `${Math.round(data.avgQuality * 100)}%` : '-');
+        $('#progressMessage').text(data.message || 'Procesando...');
     }
-    
-    /**
-     * Obtiene los resultados finales
-     */
-    async getResults() {
-        // En este caso, los resultados ya se obtuvieron en startScraping
-        // Pero aquí se podría implementar una llamada adicional si fuera necesario
-        this.hideLoadingState();
-        this.displayResults();
-        this.showAlert(`¡Búsqueda completada! Se encontraron ${this.results.length} leads.`, 'success');
-    }
-    
-    /**
-     * Detiene el monitoreo de progreso
-     */
+
     stopProgressMonitoring() {
         if (this.progressInterval) {
             clearInterval(this.progressInterval);
             this.progressInterval = null;
         }
     }
-    
-    /**
-     * Muestra el estado de carga
-     */
-    showLoadingState() {
-        document.getElementById('initialState').style.display = 'none';
-        document.getElementById('loadingIndicator').style.display = 'block';
-        document.getElementById('progressContainer').style.display = 'block';
-        document.getElementById('resultsTable').style.display = 'none';
-        document.getElementById('resultSummary').style.display = 'none';
+
+    async handleSearchComplete(data) {
+        this.resetSearchState();
         
-        // Deshabilitar formulario
-        const form = document.getElementById('searchForm');
-        const inputs = form.querySelectorAll('input, select, button');
-        inputs.forEach(input => input.disabled = true);
-    }
-    
-    /**
-     * Oculta el estado de carga
-     */
-    hideLoadingState() {
-        document.getElementById('loadingIndicator').style.display = 'none';
-        document.getElementById('progressContainer').style.display = 'none';
-        
-        // Rehabilitar formulario
-        const form = document.getElementById('searchForm');
-        const inputs = form.querySelectorAll('input, select, button');
-        inputs.forEach(input => input.disabled = false);
-    }
-    
-    /**
-     * Actualiza la barra de progreso
-     */
-    updateProgressBar(percentage, message) {
-        const progressBar = document.getElementById('progressBar');
-        if (progressBar) {
-            progressBar.style.width = percentage + '%';
-            progressBar.textContent = Math.round(percentage) + '%';
-            progressBar.setAttribute('aria-valuenow', percentage);
-        }
-        
-        // Actualizar mensaje si existe un elemento para ello
-        const messageElement = document.querySelector('#loadingIndicator p');
-        if (messageElement && message) {
-            messageElement.textContent = message;
+        if (data.status === 'completed') {
+            this.showNotification('¡Búsqueda completada exitosamente!', 'success');
+            this.showResults(data);
+        } else {
+            this.showNotification('La búsqueda falló. Revisa los logs para más detalles.', 'error');
         }
     }
-    
-    /**
-     * Muestra los resultados en la tabla
-     */
-    displayResults() {
-        if (!this.results || this.results.length === 0) {
-            this.showAlert('No se encontraron resultados para los criterios especificados.', 'info');
-            return;
-        }
-        
-        // Mostrar resumen
-        document.getElementById('totalLeads').textContent = this.results.length;
-        document.getElementById('resultSummary').style.display = 'block';
-        
-        // Llenar tabla
-        const tbody = document.getElementById('resultsBody');
-        tbody.innerHTML = '';
-        
-        this.results.forEach((lead, index) => {
-            const row = this.createResultRow(lead, index);
-            tbody.appendChild(row);
-        });
-        
-        document.getElementById('resultsTable').style.display = 'block';
-        document.getElementById('initialState').style.display = 'none';
-        
-        // Animar entrada de resultados
-        this.animateResults();
-    }
-    
-    /**
-     * Crea una fila de resultado
-     */
-    createResultRow(lead, index) {
-        const row = document.createElement('tr');
-        row.className = 'fade-in';
-        row.style.animationDelay = (index * 0.1) + 's';
-        
-        row.innerHTML = `
-            <td>
-                <div class="d-flex align-items-center">
+
+    showResults(data) {
+        const resultsHtml = `
+            <div class="results-container">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h5 class="mb-0">
+                        <i class="fas fa-check-circle text-success me-2"></i>
+                        Búsqueda Completada
+                    </h5>
                     <div>
-                        <strong>${this.escapeHtml(lead.empresa)}</strong>
-                        ${lead.url ? `<br><small class="text-muted"><a href="${this.escapeHtml(lead.url)}" target="_blank" class="text-decoration-none">${this.truncateUrl(lead.url)}</a></small>` : ''}
+                        <button class="btn btn-outline-primary btn-sm me-2" onclick="scrapperLeads.viewResults()">
+                            <i class="fas fa-eye me-1"></i>
+                            Ver Resultados
+                        </button>
+                        <button class="btn btn-success btn-sm" onclick="scrapperLeads.exportResults()">
+                            <i class="fas fa-download me-1"></i>
+                            Exportar CSV
+                        </button>
                     </div>
                 </div>
-            </td>
-            <td>
-                ${lead.direccion ? `<i class="fas fa-map-marker-alt text-primary me-1"></i>${this.escapeHtml(lead.direccion)}` : '<span class="text-muted">No disponible</span>'}
-            </td>
-            <td>
-                <div>
-                    ${lead.telefono ? `<div><i class="fas fa-phone text-success me-1"></i>${this.escapeHtml(lead.telefono)}</div>` : ''}
-                    ${lead.email ? `<div><i class="fas fa-envelope text-info me-1"></i><small>${this.escapeHtml(lead.email)}</small></div>` : ''}
-                    ${!lead.telefono && !lead.email ? '<span class="text-muted">No disponible</span>' : ''}
+                
+                <div class="alert alert-success">
+                    <div class="row text-center">
+                        <div class="col-md-3">
+                            <strong>${data.totalFound || 0}</strong><br>
+                            <small>Leads Encontrados</small>
+                        </div>
+                        <div class="col-md-3">
+                            <strong>${data.resultsProcessed || 0}</strong><br>
+                            <small>Procesados</small>
+                        </div>
+                        <div class="col-md-3">
+                            <strong>${data.avgQuality ? Math.round(data.avgQuality * 100) + '%' : 'N/A'}</strong><br>
+                            <small>Calidad Promedio</small>
+                        </div>
+                        <div class="col-md-3">
+                            <strong>${this.formatDuration(data.duration)}</strong><br>
+                            <small>Duración</small>
+                        </div>
+                    </div>
                 </div>
-            </td>
-            <td>
-                <span class="badge bg-secondary">${this.escapeHtml(lead.empleados)}</span>
-            </td>
-            <td>
-                <span class="badge bg-success">${this.escapeHtml(lead.facturacion)}</span>
-            </td>
+                
+                <div class="text-center">
+                    <button class="btn btn-primary" onclick="scrapperLeads.newSearch()">
+                        <i class="fas fa-plus me-2"></i>
+                        Nueva Búsqueda
+                    </button>
+                </div>
+            </div>
         `;
-        
-        return row;
+
+        $('#searchResults').html(resultsHtml);
     }
-    
-    /**
-     * Anima la entrada de resultados
-     */
-    animateResults() {
-        const rows = document.querySelectorAll('#resultsTable tbody tr');
-        rows.forEach((row, index) => {
-            setTimeout(() => {
-                row.classList.add('show');
-            }, index * 100);
-        });
-    }
-    
-    /**
-     * Descarga los resultados en formato CSV
-     */
-    downloadCSV() {
-        if (!this.results || this.results.length === 0) {
-            this.showAlert('No hay resultados para descargar.', 'warning');
-            return;
-        }
-        
-        const csv = this.generateCSV();
-        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-        const link = document.createElement('a');
-        
-        if (link.download !== undefined) {
-            const url = URL.createObjectURL(blob);
-            link.setAttribute('href', url);
-            link.setAttribute('download', `leads_${new Date().toISOString().split('T')[0]}.csv`);
-            link.style.visibility = 'hidden';
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-        }
-        
-        this.showAlert('Archivo CSV descargado correctamente.', 'success');
-    }
-    
-    /**
-     * Genera el contenido CSV
-     */
-    generateCSV() {
-        const headers = [
-            'Empresa',
-            'URL',
-            'Dirección',
-            'Teléfono',
-            'Email',
-            'Empleados',
-            'Facturación',
-            'Sector',
-            'Fecha Captura',
-            'Fuente'
-        ];
-        
-        let csv = headers.join(',') + '\n';
-        
-        this.results.forEach(lead => {
-            const row = [
-                this.csvEscape(lead.empresa),
-                this.csvEscape(lead.url),
-                this.csvEscape(lead.direccion),
-                this.csvEscape(lead.telefono),
-                this.csvEscape(lead.email),
-                this.csvEscape(lead.empleados),
-                this.csvEscape(lead.facturacion),
-                this.csvEscape(lead.sector),
-                this.csvEscape(lead.fecha_captura),
-                this.csvEscape(lead.fuente)
-            ];
-            csv += row.join(',') + '\n';
-        });
-        
-        return csv;
-    }
-    
-    /**
-     * Escapa valores para CSV
-     */
-    csvEscape(value) {
-        if (!value) return '""';
-        const stringValue = String(value);
-        if (stringValue.includes(',') || stringValue.includes('"') || stringValue.includes('\n')) {
-            return '"' + stringValue.replace(/"/g, '""') + '"';
-        }
-        return '"' + stringValue + '"';
-    }
-    
-    /**
-     * Muestra alertas al usuario
-     */
-    showAlert(message, type = 'info') {
-        // Crear elemento de alerta
-        const alertDiv = document.createElement('div');
-        alertDiv.className = `alert alert-${type} alert-dismissible fade show position-fixed`;
-        alertDiv.style.cssText = 'top: 20px; right: 20px; z-index: 9999; min-width: 300px;';
-        
-        alertDiv.innerHTML = `
-            ${message}
-            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-        `;
-        
-        document.body.appendChild(alertDiv);
-        
-        // Auto-remover después de 5 segundos
-        setTimeout(() => {
-            if (alertDiv.parentNode) {
-                alertDiv.remove();
-            }
-        }, 5000);
-    }
-    
-    /**
-     * Configura auto-guardado de configuración
-     */
-    setupAutoSave() {
-        const formElements = document.querySelectorAll('#searchForm input, #searchForm select');
-        formElements.forEach(element => {
-            element.addEventListener('change', () => {
-                this.saveFormState();
+
+    async stopSearch() {
+        if (!this.currentSearchId) return;
+
+        try {
+            await this.makeRequest(`/api/scraper.php?action=stop&searchId=${this.currentSearchId}`, {
+                method: 'POST'
             });
-        });
-        
-        // Cargar estado guardado
-        this.loadFormState();
+            
+            this.showNotification('Búsqueda detenida', 'warning');
+            this.resetSearchState();
+            this.stopProgressMonitoring();
+            
+        } catch (error) {
+            console.error('Error stopping search:', error);
+        }
     }
-    
-    /**
-     * Guarda el estado del formulario
-     */
-    saveFormState() {
-        const formData = this.getFormData();
-        localStorage.setItem('scrapperLeadsFormState', JSON.stringify(formData));
-    }
-    
-    /**
-     * Carga el estado del formulario
-     */
-    loadFormState() {
-        const savedState = localStorage.getItem('scrapperLeadsFormState');
-        if (savedState) {
-            try {
-                const formData = JSON.parse(savedState);
-                Object.keys(formData).forEach(key => {
-                    const element = document.getElementById(key);
-                    if (element && formData[key]) {
-                        element.value = formData[key];
-                    }
-                });
-            } catch (error) {
-                console.error('Error loading form state:', error);
+
+    async exportResults() {
+        if (!this.currentSearchId) return;
+
+        try {
+            this.showNotification('Generando archivo CSV...', 'info');
+            
+            const response = await this.makeRequest(`/api/export.php?searchId=${this.currentSearchId}&format=csv`);
+            
+            if (response.success) {
+                // Descargar archivo
+                const link = document.createElement('a');
+                link.href = response.downloadUrl;
+                link.download = response.filename;
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                
+                this.showNotification('Archivo CSV descargado correctamente', 'success');
+            } else {
+                throw new Error(response.message);
             }
+            
+        } catch (error) {
+            console.error('Error exporting results:', error);
+            this.showNotification(`Error al exportar: ${error.message}`, 'error');
         }
     }
-    
-    /**
-     * Inicializa tooltips de Bootstrap
-     */
-    initializeTooltips() {
-        // Inicializar tooltips si Bootstrap está disponible
-        if (typeof bootstrap !== 'undefined') {
-            const tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
-            tooltipTriggerList.map(function (tooltipTriggerEl) {
-                return new bootstrap.Tooltip(tooltipTriggerEl);
-            });
-        }
+
+    async viewResults() {
+        if (!this.currentSearchId) return;
+        
+        // Abrir resultados en nueva ventana
+        window.open(`/results.php?searchId=${this.currentSearchId}`, '_blank');
     }
-    
-    /**
-     * Utilidades de escape HTML
-     */
-    escapeHtml(text) {
-        if (!text) return '';
-        const map = {
-            '&': '&amp;',
-            '<': '&lt;',
-            '>': '&gt;',
-            '"': '&quot;',
-            "'": '&#039;'
+
+    newSearch() {
+        this.resetSearchState();
+        $('#searchResults').html(`
+            <div class="text-center py-5">
+                <i class="fas fa-search fa-3x text-muted mb-3"></i>
+                <h4 class="text-muted">Configura los filtros y inicia la búsqueda</h4>
+                <p class="text-muted">Los resultados aparecerán aquí una vez iniciada la captura.</p>
+            </div>
+        `);
+    }
+
+    resetSearchState() {
+        this.searchInProgress = false;
+        this.currentSearchId = null;
+        $('#startSearch').prop('disabled', false).html('<i class="fas fa-search me-2"></i>Iniciar Captura de Leads');
+    }
+
+    formatDuration(seconds) {
+        if (!seconds) return 'N/A';
+        
+        const mins = Math.floor(seconds / 60);
+        const secs = seconds % 60;
+        
+        return mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
+    }
+
+    async makeRequest(url, options = {}) {
+        const defaultOptions = {
+            method: 'GET',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-Requested-With': 'XMLHttpRequest'
+            }
         };
-        return text.replace(/[&<>"']/g, function(m) { return map[m]; });
-    }
-    
-    /**
-     * Trunca URLs largas
-     */
-    truncateUrl(url, maxLength = 50) {
-        if (!url || url.length <= maxLength) return url;
-        return url.substring(0, maxLength) + '...';
+
+        const response = await fetch(url, { ...defaultOptions, ...options });
+        
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        return await response.json();
     }
 }
 
-// Inicializar la aplicación cuando el DOM esté listo
-document.addEventListener('DOMContentLoaded', function() {
-    window.scrapperApp = new ScrapperLeadsApp();
-    
-    // Verificar estado del sistema
-    fetch('/api/scraper.php/health')
-        .then(response => response.json())
-        .then(data => {
-            if (data.status !== 'ok') {
-                console.warn('System health check warning:', data);
-            }
-        })
-        .catch(error => {
-            console.error('Health check failed:', error);
-        });
+// Inicializar aplicación cuando el DOM esté listo
+$(document).ready(() => {
+    window.scrapperLeads = new ScrapperLeads();
 });
 
