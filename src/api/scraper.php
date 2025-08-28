@@ -35,20 +35,24 @@ try {
     // Routing básico
     switch ($method) {
         case 'POST':
-            if (end($pathParts) === 'start') {
+            $action = $_GET['action'] ?? 'start';
+            if ($action === 'start' || !isset($_GET['action'])) {
                 handleStartScraping();
+            } elseif ($action === 'stop') {
+                handleStopScraping();
             } else {
-                throw new Exception('Endpoint no encontrado');
+                throw new Exception('Acción no válida');
             }
             break;
             
         case 'GET':
-            if (end($pathParts) === 'progress') {
+            $action = $_GET['action'] ?? 'health';
+            if ($action === 'progress') {
                 handleGetProgress();
-            } elseif (end($pathParts) === 'health') {
+            } elseif ($action === 'health') {
                 handleHealthCheck();
             } else {
-                throw new Exception('Endpoint no encontrado');
+                throw new Exception('Acción no válida');
             }
             break;
             
@@ -75,19 +79,28 @@ function handleStartScraping(): void
     // Validar datos de entrada
     $input = json_decode(file_get_contents('php://input'), true);
     
-    if (!$input || !isset($input['keywords'])) {
-        throw new Exception('Parámetros requeridos faltantes');
+    if (!$input) {
+        throw new Exception('Datos de entrada inválidos');
+    }
+    
+    // Validar que al menos haya un filtro
+    $hasFilters = !empty($input['keywords']) || 
+                  !empty($input['sectors']) || 
+                  !empty($input['provinces']) || 
+                  !empty($input['regions']);
+    
+    if (!$hasFilters) {
+        throw new Exception('Debe especificar al menos un filtro de búsqueda');
     }
     
     // Validar y sanitizar parámetros
     $params = [
-        'keywords' => sanitizeString($input['keywords']),
-        'sector' => sanitizeString($input['sector'] ?? ''),
-        'provincia' => sanitizeString($input['provincia'] ?? ''),
-        'region' => sanitizeString($input['region'] ?? ''),
-        'empleados' => sanitizeString($input['empleados'] ?? ''),
-        'facturacion' => sanitizeString($input['facturacion'] ?? ''),
-        'numResults' => min((int)($input['numResults'] ?? 20), $config->get('scraper.max_results', 100))
+        'keywords' => sanitizeString($input['keywords'] ?? ''),
+        'sectors' => is_array($input['sectors']) ? $input['sectors'] : [],
+        'provinces' => is_array($input['provinces']) ? $input['provinces'] : [],
+        'regions' => is_array($input['regions']) ? $input['regions'] : [],
+        'revenue' => sanitizeString($input['revenue'] ?? ''),
+        'maxResults' => min((int)($input['maxResults'] ?? 20), $config->get('scraper.max_results', 1000))
     ];
     
     $logger->info('Iniciando scraping con parámetros: ' . json_encode($params));
@@ -103,10 +116,37 @@ function handleStartScraping(): void
     
     echo json_encode([
         'success' => true,
-        'sessionId' => $sessionId,
+        'searchId' => $sessionId,
         'message' => 'Scraping iniciado correctamente',
         'results' => $results,
         'totalFound' => count($results)
+    ]);
+}
+
+/**
+ * Detiene el proceso de scraping
+ */
+function handleStopScraping(): void
+{
+    $searchId = $_GET['searchId'] ?? '';
+    
+    if (empty($searchId)) {
+        throw new Exception('Search ID requerido');
+    }
+    
+    // Marcar como detenido en archivo de progreso
+    $progressFile = sys_get_temp_dir() . "/scraper_progress_{$searchId}.json";
+    
+    if (file_exists($progressFile)) {
+        $progress = json_decode(file_get_contents($progressFile), true);
+        $progress['status'] = 'stopped';
+        $progress['message'] = 'Búsqueda detenida por el usuario';
+        file_put_contents($progressFile, json_encode($progress));
+    }
+    
+    echo json_encode([
+        'success' => true,
+        'message' => 'Búsqueda detenida correctamente'
     ]);
 }
 
