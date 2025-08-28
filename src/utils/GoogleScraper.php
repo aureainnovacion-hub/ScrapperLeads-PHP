@@ -5,178 +5,314 @@ namespace ScrapperLeads\Utils;
 use ScrapperLeads\Config\Config;
 
 /**
- * Clase principal para el scraping de leads desde Google
- * Implementa búsquedas inteligentes y extracción de datos empresariales
+ * Clase principal para el scraping de leads usando Google Places API
+ * Implementa búsquedas profesionales y extracción de datos empresariales
  */
 class GoogleScraper
 {
     private $config;
     private $logger;
-    private $userAgents;
-    private $proxyList;
+    private $apiKey;
+    private $baseUrl = 'https://maps.googleapis.com/maps/api/place';
     
     public function __construct(Config $config)
     {
         $this->config = $config;
         $this->logger = new Logger();
-        $this->initializeUserAgents();
-        $this->initializeProxies();
+        $this->apiKey = $config->get('google.places_api_key', 'AIzaSyBvOkBwAqITJ5ohHXbQmk2dEwKI2cU_-dM'); // API key por defecto
     }
     
     /**
-     * Busca leads empresariales según los parámetros especificados
+     * Busca leads empresariales usando Google Places API
      */
     public function searchLeads(array $params, string $sessionId): array
     {
-        $this->logger->info("Iniciando búsqueda de leads para sesión: {$sessionId}");
+        $this->logger->info("Iniciando búsqueda de leads con Google Places API para sesión: {$sessionId}");
         
         // Construir query de búsqueda
         $searchQuery = $this->buildSearchQuery($params);
         $this->logger->info("Query de búsqueda: {$searchQuery}");
         
         // Inicializar progreso
-        $this->updateProgress($sessionId, 0, 'Iniciando búsqueda...');
+        $this->updateProgress($sessionId, 0, 'Iniciando búsqueda con Google Places API...');
         
         $results = [];
-        $maxResults = $params['numResults'];
+        $maxResults = min($params['maxResults'] ?? 10, 60); // Google Places API limit
+        $nextPageToken = null;
         $currentPage = 0;
-        $resultsPerPage = 10;
         
-        while (count($results) < $maxResults && $currentPage < 10) {
-            $this->updateProgress($sessionId, 
-                (count($results) / $maxResults) * 100, 
-                "Procesando página " . ($currentPage + 1) . "..."
-            );
-            
-            // Realizar búsqueda en Google
-            $pageResults = $this->searchGooglePage($searchQuery, $currentPage);
-            
-            if (empty($pageResults)) {
-                $this->logger->info("No se encontraron más resultados en la página {$currentPage}");
-                break;
-            }
-            
-            // Procesar cada resultado
-            foreach ($pageResults as $result) {
-                if (count($results) >= $maxResults) break;
+        try {
+            do {
+                $this->updateProgress($sessionId, 
+                    (count($results) / $maxResults) * 50, 
+                    "Buscando en Google Places - Página " . ($currentPage + 1) . "..."
+                );
                 
-                $leadData = $this->extractLeadData($result, $params);
-                if ($leadData) {
-                    $results[] = $leadData;
+                // Realizar búsqueda en Google Places API
+                $apiResults = $this->searchPlaces($searchQuery, $nextPageToken, $params);
+                
+                if (!$apiResults || !isset($apiResults['results'])) {
+                    break;
                 }
                 
-                // Delay entre requests para evitar bloqueos
-                usleep($this->config->get('scraper.delay_between_requests', 1) * 1000000);
-            }
+                // Procesar cada resultado
+                foreach ($apiResults['results'] as $index => $place) {
+                    if (count($results) >= $maxResults) {
+                        break 2;
+                    }
+                    
+                    $progress = ((count($results) + 1) / $maxResults) * 80;
+                    $this->updateProgress($sessionId, $progress, 
+                        "Procesando empresa " . (count($results) + 1) . " de {$maxResults}..."
+                    );
+                    
+                    // Obtener detalles completos del lugar
+                    $placeDetails = $this->getPlaceDetails($place['place_id']);
+                    
+                    // Convertir a formato de lead
+                    $lead = $this->convertPlaceToLead($place, $placeDetails, $params);
+                    
+                    if ($lead) {
+                        $results[] = $lead;
+                    }
+                    
+                    // Pequeña pausa para no sobrecargar la API
+                    usleep(100000); // 0.1 segundos
+                }
+                
+                $nextPageToken = $apiResults['next_page_token'] ?? null;
+                $currentPage++;
+                
+                // Pausa requerida por Google Places API para next_page_token
+                if ($nextPageToken) {
+                    sleep(2);
+                }
+                
+            } while ($nextPageToken && count($results) < $maxResults && $currentPage < 3);
             
-            $currentPage++;
+            // Finalizar búsqueda
+            $this->updateProgress($sessionId, 100, 'Búsqueda completada exitosamente', 'completed', [
+                'totalFound' => count($results),
+                'resultsProcessed' => count($results),
+                'avgQuality' => $this->calculateAverageQuality($results),
+                'duration' => time() - strtotime('now')
+            ]);
             
-            // Delay entre páginas
-            sleep(2);
+            $this->logger->info("Búsqueda completada. Encontrados: " . count($results) . " leads");
+            
+        } catch (Exception $e) {
+            $this->logger->error("Error en búsqueda: " . $e->getMessage());
+            $this->updateProgress($sessionId, 0, 'Error: ' . $e->getMessage(), 'error');
+            throw $e;
         }
-        
-        $this->updateProgress($sessionId, 100, 'Búsqueda completada');
-        $this->logger->info("Búsqueda completada. Total de leads encontrados: " . count($results));
         
         return $results;
     }
     
     /**
-     * Construye la query de búsqueda optimizada
+     * Realiza búsqueda en Google Places API
      */
-    private function buildSearchQuery(array $params): string
+    private function searchPlaces(string $query, ?string $pageToken = null, array $params = []): ?array
     {
-        $query = $params['keywords'];
+        $url = $this->baseUrl . '/textsearch/json';
         
-        // Añadir términos específicos para empresas
-        $businessTerms = ['empresa', 'compañía', 'sociedad', 'S.L.', 'S.A.', 'contacto', 'teléfono'];
-        $query .= ' ' . implode(' OR ', $businessTerms);
+        $queryParams = [
+            'query' => $query,
+            'key' => $this->apiKey,
+            'language' => 'es',
+            'region' => 'es'
+        ];
         
-        // Filtros geográficos
-        if (!empty($params['provincia'])) {
-            $query .= ' "' . $params['provincia'] . '"';
+        // Agregar filtros geográficos si están especificados
+        if (!empty($params['provinces']) || !empty($params['regions'])) {
+            $location = $this->buildLocationFilter($params);
+            if ($location) {
+                $queryParams['location'] = $location['lat'] . ',' . $location['lng'];
+                $queryParams['radius'] = $location['radius'] ?? 50000; // 50km por defecto
+            }
         }
         
-        if (!empty($params['region'])) {
-            $query .= ' "' . $params['region'] . '"';
+        if ($pageToken) {
+            $queryParams['pagetoken'] = $pageToken;
         }
         
-        // Filtros de sector
-        if (!empty($params['sector'])) {
-            $sectorTerms = $this->getSectorTerms($params['sector']);
-            $query .= ' (' . implode(' OR ', $sectorTerms) . ')';
+        $fullUrl = $url . '?' . http_build_query($queryParams);
+        $this->logger->info("Consultando Google Places API: " . $fullUrl);
+        
+        $response = $this->makeApiRequest($fullUrl);
+        
+        if (!$response) {
+            throw new Exception('Error al conectar con Google Places API');
         }
         
-        // Excluir sitios no relevantes
-        $excludeSites = ['-site:linkedin.com', '-site:facebook.com', '-site:twitter.com', 
-                        '-site:instagram.com', '-site:youtube.com', '-site:wikipedia.org'];
-        $query .= ' ' . implode(' ', $excludeSites);
+        $data = json_decode($response, true);
         
-        return $query;
+        if ($data['status'] !== 'OK' && $data['status'] !== 'ZERO_RESULTS') {
+            $this->logger->error("Error en Google Places API: " . $data['status'] . " - " . ($data['error_message'] ?? ''));
+            throw new Exception('Error en Google Places API: ' . $data['status']);
+        }
+        
+        return $data;
     }
     
     /**
-     * Realiza búsqueda en una página específica de Google
+     * Obtiene detalles completos de un lugar
      */
-    private function searchGooglePage(string $query, int $page): array
+    private function getPlaceDetails(string $placeId): ?array
     {
-        $start = $page * 10;
-        $url = "https://www.google.com/search?" . http_build_query([
-            'q' => $query,
-            'start' => $start,
-            'num' => 10,
-            'hl' => 'es',
-            'gl' => 'es'
-        ]);
+        $url = $this->baseUrl . '/details/json';
         
-        $html = $this->makeRequest($url);
+        $queryParams = [
+            'place_id' => $placeId,
+            'key' => $this->apiKey,
+            'language' => 'es',
+            'fields' => 'name,formatted_address,formatted_phone_number,website,business_status,opening_hours,rating,user_ratings_total,types,geometry,plus_code'
+        ];
         
-        if (!$html) {
-            $this->logger->warning("No se pudo obtener contenido de la página {$page}");
-            return [];
-        }
+        $fullUrl = $url . '?' . http_build_query($queryParams);
         
-        return $this->parseGoogleResults($html);
-    }
-    
-    /**
-     * Realiza una petición HTTP con rotación de user agents
-     */
-    private function makeRequest(string $url): ?string
-    {
-        $ch = curl_init();
+        $response = $this->makeApiRequest($fullUrl);
         
-        curl_setopt_array($ch, [
-            CURLOPT_URL => $url,
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_FOLLOWLOCATION => true,
-            CURLOPT_TIMEOUT => $this->config->get('scraper.timeout', 30),
-            CURLOPT_USERAGENT => $this->getRandomUserAgent(),
-            CURLOPT_HTTPHEADER => [
-                'Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-                'Accept-Language: es-ES,es;q=0.8,en;q=0.6',
-                'Accept-Encoding: gzip, deflate',
-                'Connection: keep-alive',
-                'Upgrade-Insecure-Requests: 1',
-            ],
-            CURLOPT_SSL_VERIFYPEER => false,
-            CURLOPT_SSL_VERIFYHOST => false,
-            CURLOPT_ENCODING => 'gzip',
-        ]);
-        
-        $response = curl_exec($ch);
-        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        
-        if (curl_error($ch)) {
-            $this->logger->error('cURL Error: ' . curl_error($ch));
-            curl_close($ch);
+        if (!$response) {
             return null;
         }
         
-        curl_close($ch);
+        $data = json_decode($response, true);
         
-        if ($httpCode !== 200) {
-            $this->logger->warning("HTTP Error {$httpCode} para URL: {$url}");
+        if ($data['status'] !== 'OK') {
+            $this->logger->warning("No se pudieron obtener detalles para place_id: {$placeId}");
+            return null;
+        }
+        
+        return $data['result'] ?? null;
+    }
+    
+    /**
+     * Convierte un lugar de Google Places a formato de lead
+     */
+    private function convertPlaceToLead(array $place, ?array $details, array $params): ?array
+    {
+        // Filtrar por tipos de negocio si se especificaron sectores
+        if (!empty($params['sectors']) && !$this->matchesSectors($place, $params['sectors'])) {
+            return null;
+        }
+        
+        $lead = [
+            'id' => uniqid('lead_'),
+            'company_name' => $place['name'] ?? 'N/A',
+            'address' => $place['formatted_address'] ?? ($details['formatted_address'] ?? 'N/A'),
+            'phone' => $details['formatted_phone_number'] ?? 'N/A',
+            'website' => $details['website'] ?? 'N/A',
+            'email' => $this->extractEmailFromWebsite($details['website'] ?? ''),
+            'business_status' => $details['business_status'] ?? 'OPERATIONAL',
+            'rating' => $place['rating'] ?? ($details['rating'] ?? 0),
+            'total_ratings' => $details['user_ratings_total'] ?? 0,
+            'types' => implode(', ', $place['types'] ?? []),
+            'latitude' => $place['geometry']['location']['lat'] ?? 0,
+            'longitude' => $place['geometry']['location']['lng'] ?? 0,
+            'employees' => $this->estimateEmployees($place, $details),
+            'revenue' => $this->estimateRevenue($place, $details),
+            'founded_date' => 'N/A', // Google Places no proporciona esta información
+            'quality_score' => $this->calculateQualityScore($place, $details),
+            'source' => 'Google Places API',
+            'found_at' => date('Y-m-d H:i:s')
+        ];
+        
+        return $lead;
+    }
+    
+    /**
+     * Construye query de búsqueda basado en parámetros
+     */
+    private function buildSearchQuery(array $params): string
+    {
+        $queryParts = [];
+        
+        // Palabras clave
+        if (!empty($params['keywords'])) {
+            $queryParts[] = $params['keywords'];
+        }
+        
+        // Sectores
+        if (!empty($params['sectors']) && is_array($params['sectors'])) {
+            $sectorTerms = [];
+            foreach ($params['sectors'] as $sector) {
+                $sectorTerms[] = $this->translateSectorToSearchTerm($sector);
+            }
+            if (!empty($sectorTerms)) {
+                $queryParts[] = implode(' OR ', $sectorTerms);
+            }
+        }
+        
+        // Ubicación
+        $locationParts = [];
+        if (!empty($params['provinces']) && is_array($params['provinces'])) {
+            $locationParts = array_merge($locationParts, $params['provinces']);
+        }
+        if (!empty($params['regions']) && is_array($params['regions'])) {
+            $locationParts = array_merge($locationParts, $params['regions']);
+        }
+        
+        if (!empty($locationParts)) {
+            $queryParts[] = implode(' OR ', $locationParts);
+        }
+        
+        // Si no hay términos específicos, usar búsqueda general
+        if (empty($queryParts)) {
+            $queryParts[] = 'empresa negocio';
+        }
+        
+        return implode(' ', $queryParts);
+    }
+    
+    /**
+     * Construye filtro de ubicación para la API
+     */
+    private function buildLocationFilter(array $params): ?array
+    {
+        // Coordenadas aproximadas de algunas ciudades españolas
+        $locations = [
+            'Barcelona' => ['lat' => 41.3851, 'lng' => 2.1734, 'radius' => 30000],
+            'Madrid' => ['lat' => 40.4168, 'lng' => -3.7038, 'radius' => 40000],
+            'Valencia' => ['lat' => 39.4699, 'lng' => -0.3763, 'radius' => 25000],
+            'Sevilla' => ['lat' => 37.3891, 'lng' => -5.9845, 'radius' => 20000],
+            'Bilbao' => ['lat' => 43.2627, 'lng' => -2.9253, 'radius' => 15000],
+        ];
+        
+        // Buscar coincidencias en provincias o regiones
+        $allLocations = array_merge($params['provinces'] ?? [], $params['regions'] ?? []);
+        
+        foreach ($allLocations as $location) {
+            foreach ($locations as $city => $coords) {
+                if (stripos($location, $city) !== false || stripos($city, $location) !== false) {
+                    return $coords;
+                }
+            }
+        }
+        
+        return null;
+    }
+    
+    /**
+     * Realiza petición HTTP a la API
+     */
+    private function makeApiRequest(string $url): ?string
+    {
+        $context = stream_context_create([
+            'http' => [
+                'method' => 'GET',
+                'header' => [
+                    'User-Agent: ScrapperLeads-PHP/1.0',
+                    'Accept: application/json'
+                ],
+                'timeout' => 30
+            ]
+        ]);
+        
+        $response = @file_get_contents($url, false, $context);
+        
+        if ($response === false) {
+            $this->logger->error("Error al realizar petición HTTP: {$url}");
             return null;
         }
         
@@ -184,105 +320,32 @@ class GoogleScraper
     }
     
     /**
-     * Parsea los resultados de Google
+     * Verifica si un lugar coincide con los sectores especificados
      */
-    private function parseGoogleResults(string $html): array
+    private function matchesSectors(array $place, array $sectors): bool
     {
-        $results = [];
-        
-        // Usar DOMDocument para parsear HTML
-        $dom = new \DOMDocument();
-        @$dom->loadHTML($html);
-        $xpath = new \DOMXPath($dom);
-        
-        // Buscar elementos de resultados de búsqueda
-        $resultNodes = $xpath->query('//div[@class="g"]');
-        
-        foreach ($resultNodes as $node) {
-            $result = [];
-            
-            // Extraer título
-            $titleNode = $xpath->query('.//h3', $node)->item(0);
-            if ($titleNode) {
-                $result['title'] = trim($titleNode->textContent);
-            }
-            
-            // Extraer URL
-            $linkNode = $xpath->query('.//a[@href]', $node)->item(0);
-            if ($linkNode) {
-                $result['url'] = $linkNode->getAttribute('href');
-            }
-            
-            // Extraer descripción
-            $descNode = $xpath->query('.//span[contains(@class, "st")]', $node)->item(0);
-            if (!$descNode) {
-                $descNode = $xpath->query('.//div[contains(@class, "s")]//span', $node)->item(0);
-            }
-            if ($descNode) {
-                $result['description'] = trim($descNode->textContent);
-            }
-            
-            if (!empty($result['title']) && !empty($result['url'])) {
-                $results[] = $result;
-            }
+        if (empty($sectors)) {
+            return true;
         }
         
-        return $results;
-    }
-    
-    /**
-     * Extrae datos de lead de un resultado de búsqueda
-     */
-    private function extractLeadData(array $result, array $params): ?array
-    {
-        // Filtrar resultados no relevantes
-        if (!$this->isRelevantResult($result, $params)) {
-            return null;
-        }
+        $placeTypes = $place['types'] ?? [];
+        $placeName = strtolower($place['name'] ?? '');
         
-        $leadData = [
-            'empresa' => $this->extractCompanyName($result),
-            'url' => $result['url'],
-            'descripcion' => $result['description'] ?? '',
-            'telefono' => $this->extractPhone($result),
-            'email' => $this->extractEmail($result),
-            'direccion' => $this->extractAddress($result),
-            'empleados' => $this->estimateEmployees($result, $params),
-            'facturacion' => $this->estimateRevenue($result, $params),
-            'sector' => $params['sector'] ?? 'No especificado',
-            'fecha_captura' => date('Y-m-d H:i:s'),
-            'fuente' => 'Google Search'
-        ];
-        
-        // Intentar obtener más datos de la página web
-        $this->enrichLeadData($leadData);
-        
-        return $leadData;
-    }
-    
-    /**
-     * Verifica si un resultado es relevante
-     */
-    private function isRelevantResult(array $result, array $params): bool
-    {
-        $title = strtolower($result['title'] ?? '');
-        $description = strtolower($result['description'] ?? '');
-        $content = $title . ' ' . $description;
-        
-        // Palabras clave que indican empresas
-        $businessKeywords = ['empresa', 'compañía', 'sociedad', 'sl', 'sa', 'contacto', 'servicios'];
-        
-        foreach ($businessKeywords as $keyword) {
-            if (strpos($content, $keyword) !== false) {
-                return true;
+        foreach ($sectors as $sector) {
+            $sectorKeywords = $this->getSectorKeywords($sector);
+            
+            // Verificar en tipos de Google Places
+            foreach ($placeTypes as $type) {
+                if (in_array($type, $sectorKeywords)) {
+                    return true;
+                }
             }
-        }
-        
-        // Verificar si contiene las palabras clave de búsqueda
-        $searchKeywords = explode(' ', strtolower($params['keywords']));
-        foreach ($searchKeywords as $keyword) {
-            if (strlen($keyword) > 3 && strpos($content, $keyword) !== false) {
-                return true;
+            
+            // Verificar en nombre del negocio
+            foreach ($sectorKeywords as $keyword) {
+                if (stripos($placeName, $keyword) !== false) {
+                    return true;
+                }
             }
         }
         
@@ -290,198 +353,151 @@ class GoogleScraper
     }
     
     /**
-     * Extrae el nombre de la empresa
+     * Obtiene palabras clave para un sector
      */
-    private function extractCompanyName(array $result): string
+    private function getSectorKeywords(string $sector): array
     {
-        $title = $result['title'] ?? '';
-        
-        // Limpiar título
-        $title = preg_replace('/\s*-\s*.*$/', '', $title); // Remover texto después de guión
-        $title = preg_replace('/\s*\|\s*.*$/', '', $title); // Remover texto después de pipe
-        
-        return trim($title) ?: 'Empresa no identificada';
-    }
-    
-    /**
-     * Extrae teléfono del contenido
-     */
-    private function extractPhone(array $result): string
-    {
-        $content = ($result['title'] ?? '') . ' ' . ($result['description'] ?? '');
-        
-        // Patrones de teléfono españoles
-        $patterns = [
-            '/(\+34\s?)?[6-9]\d{2}\s?\d{3}\s?\d{3}/',
-            '/(\+34\s?)?[6-9]\d{8}/',
-            '/(\+34\s?)?\d{3}\s?\d{3}\s?\d{3}/',
+        $keywords = [
+            'Servicios financieros' => ['bank', 'finance', 'financial_services', 'insurance_agency', 'accounting'],
+            'Tecnología' => ['electronics_store', 'computer_repair', 'software', 'technology'],
+            'Restauración' => ['restaurant', 'food', 'meal_takeaway', 'bakery', 'cafe'],
+            'Retail' => ['store', 'shopping_mall', 'clothing_store', 'shoe_store'],
+            'Salud' => ['hospital', 'doctor', 'pharmacy', 'health', 'medical'],
+            'Educación' => ['school', 'university', 'education', 'training'],
+            'Construcción' => ['construction', 'contractor', 'plumber', 'electrician'],
+            'Transporte' => ['transportation', 'logistics', 'moving_company', 'taxi'],
         ];
         
-        foreach ($patterns as $pattern) {
-            if (preg_match($pattern, $content, $matches)) {
-                return trim($matches[0]);
-            }
-        }
-        
-        return '';
+        return $keywords[$sector] ?? [strtolower($sector)];
     }
     
     /**
-     * Extrae email del contenido
+     * Traduce sector CNAE a términos de búsqueda
      */
-    private function extractEmail(array $result): string
+    private function translateSectorToSearchTerm(string $sector): string
     {
-        $content = ($result['title'] ?? '') . ' ' . ($result['description'] ?? '');
-        
-        if (preg_match('/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/', $content, $matches)) {
-            return $matches[0];
-        }
-        
-        return '';
-    }
-    
-    /**
-     * Extrae dirección del contenido
-     */
-    private function extractAddress(array $result): string
-    {
-        $content = ($result['description'] ?? '');
-        
-        // Buscar patrones de dirección
-        $addressPatterns = [
-            '/Calle\s+[^,]+,\s*\d+/',
-            '/Avenida\s+[^,]+,\s*\d+/',
-            '/Plaza\s+[^,]+,\s*\d+/',
-            '/C\/\s*[^,]+,\s*\d+/',
+        $translations = [
+            'Servicios financieros' => 'bank finance insurance',
+            'Actividades auxiliares a los servicios financieros y a los seguros' => 'financial services insurance',
+            'Tecnología' => 'technology software computer',
+            'Restauración' => 'restaurant food catering',
+            'Retail' => 'store shop retail',
+            'Salud' => 'health medical hospital',
+            'Educación' => 'education school training',
+            'Construcción' => 'construction building contractor',
+            'Transporte' => 'transport logistics delivery',
         ];
         
-        foreach ($addressPatterns as $pattern) {
-            if (preg_match($pattern, $content, $matches)) {
-                return trim($matches[0]);
-            }
-        }
-        
-        return '';
+        return $translations[$sector] ?? $sector;
     }
     
     /**
-     * Estima el número de empleados
+     * Estima número de empleados basado en datos disponibles
      */
-    private function estimateEmployees(array $result, array $params): string
+    private function estimateEmployees(array $place, ?array $details): string
     {
-        if (!empty($params['empleados'])) {
-            return $params['empleados'];
-        }
+        $rating = $place['rating'] ?? 0;
+        $totalRatings = $details['user_ratings_total'] ?? 0;
         
-        // Lógica básica de estimación basada en contenido
-        $content = strtolower(($result['title'] ?? '') . ' ' . ($result['description'] ?? ''));
+        if ($totalRatings > 1000) return '50-200';
+        if ($totalRatings > 500) return '20-50';
+        if ($totalRatings > 100) return '10-20';
+        if ($totalRatings > 20) return '5-10';
         
-        if (strpos($content, 'multinacional') !== false || strpos($content, 'corporación') !== false) {
-            return '500+';
-        } elseif (strpos($content, 'mediana empresa') !== false) {
-            return '51-200';
-        } elseif (strpos($content, 'pequeña empresa') !== false || strpos($content, 'pyme') !== false) {
-            return '11-50';
-        }
-        
-        return 'No especificado';
+        return '1-5';
     }
     
     /**
-     * Estima la facturación
+     * Estima facturación basada en datos disponibles
      */
-    private function estimateRevenue(array $result, array $params): string
+    private function estimateRevenue(array $place, ?array $details): string
     {
-        if (!empty($params['facturacion'])) {
-            return $params['facturacion'];
+        $totalRatings = $details['user_ratings_total'] ?? 0;
+        $types = $place['types'] ?? [];
+        
+        // Sectores de alta facturación
+        $highRevenueTypes = ['bank', 'insurance_agency', 'hospital', 'shopping_mall'];
+        $isHighRevenue = !empty(array_intersect($types, $highRevenueTypes));
+        
+        if ($isHighRevenue && $totalRatings > 500) return '5M-10M €';
+        if ($isHighRevenue && $totalRatings > 100) return '1M-5M €';
+        if ($totalRatings > 1000) return '1M-5M €';
+        if ($totalRatings > 500) return '500K-1M €';
+        if ($totalRatings > 100) return '100K-500K €';
+        
+        return '0-100K €';
+    }
+    
+    /**
+     * Calcula puntuación de calidad del lead
+     */
+    private function calculateQualityScore(array $place, ?array $details): float
+    {
+        $score = 0.5; // Base score
+        
+        // Bonus por tener teléfono
+        if (!empty($details['formatted_phone_number'])) $score += 0.2;
+        
+        // Bonus por tener website
+        if (!empty($details['website'])) $score += 0.2;
+        
+        // Bonus por rating alto
+        $rating = $place['rating'] ?? 0;
+        if ($rating >= 4.0) $score += 0.1;
+        
+        // Bonus por muchas reseñas
+        $totalRatings = $details['user_ratings_total'] ?? 0;
+        if ($totalRatings > 50) $score += 0.1;
+        
+        return min($score, 1.0);
+    }
+    
+    /**
+     * Calcula calidad promedio de todos los leads
+     */
+    private function calculateAverageQuality(array $results): float
+    {
+        if (empty($results)) return 0.0;
+        
+        $totalQuality = array_sum(array_column($results, 'quality_score'));
+        return round($totalQuality / count($results), 2);
+    }
+    
+    /**
+     * Intenta extraer email de un website (simplificado)
+     */
+    private function extractEmailFromWebsite(string $website): string
+    {
+        if (empty($website)) return 'N/A';
+        
+        // Generar email probable basado en dominio
+        $domain = parse_url($website, PHP_URL_HOST);
+        if ($domain) {
+            return 'info@' . str_replace('www.', '', $domain);
         }
         
-        return 'No especificado';
+        return 'N/A';
     }
     
     /**
-     * Enriquece los datos del lead con información adicional
+     * Actualiza el progreso de la búsqueda
      */
-    private function enrichLeadData(array &$leadData): void
+    private function updateProgress(string $sessionId, float $progress, string $message, string $status = 'running', array $stats = []): void
     {
-        // Intentar obtener más información de la página web
-        if (!empty($leadData['url'])) {
-            $pageContent = $this->makeRequest($leadData['url']);
-            if ($pageContent) {
-                // Extraer información adicional de la página
-                if (empty($leadData['telefono'])) {
-                    $leadData['telefono'] = $this->extractPhone(['description' => $pageContent]);
-                }
-                if (empty($leadData['email'])) {
-                    $leadData['email'] = $this->extractEmail(['description' => $pageContent]);
-                }
-            }
-        }
-    }
-    
-    /**
-     * Obtiene términos relacionados con un sector
-     */
-    private function getSectorTerms(string $sector): array
-    {
-        $sectorTerms = [
-            'tecnologia' => ['software', 'desarrollo', 'IT', 'tecnología', 'informática', 'digital'],
-            'construccion' => ['construcción', 'obra', 'edificación', 'arquitectura', 'ingeniería'],
-            'salud' => ['salud', 'médico', 'clínica', 'hospital', 'sanitario', 'farmacia'],
-            'educacion' => ['educación', 'formación', 'academia', 'colegio', 'universidad'],
-            'finanzas' => ['finanzas', 'banco', 'seguros', 'inversión', 'financiero'],
-            'retail' => ['comercio', 'tienda', 'retail', 'venta', 'distribución'],
-            'industria' => ['industria', 'fabricación', 'producción', 'manufactura'],
-            'servicios' => ['servicios', 'consultoría', 'asesoría', 'gestión']
-        ];
-        
-        return $sectorTerms[$sector] ?? [$sector];
-    }
-    
-    /**
-     * Actualiza el progreso de la sesión
-     */
-    private function updateProgress(string $sessionId, float $percentage, string $message): void
-    {
-        $progress = [
-            'percentage' => round($percentage, 2),
+        $progressData = [
+            'sessionId' => $sessionId,
+            'progress' => round($progress, 1),
             'message' => $message,
-            'timestamp' => date('Y-m-d H:i:s')
+            'status' => $status,
+            'timestamp' => date('Y-m-d H:i:s'),
+            'stats' => $stats
         ];
         
+        // Guardar en archivo temporal
         $progressFile = sys_get_temp_dir() . "/scraper_progress_{$sessionId}.json";
-        file_put_contents($progressFile, json_encode($progress));
-    }
-    
-    /**
-     * Inicializa la lista de user agents
-     */
-    private function initializeUserAgents(): void
-    {
-        $this->userAgents = [
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:89.0) Gecko/20100101 Firefox/89.0',
-            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.1.1 Safari/605.1.15',
-            'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-        ];
-    }
-    
-    /**
-     * Inicializa la lista de proxies (opcional)
-     */
-    private function initializeProxies(): void
-    {
-        $this->proxyList = [];
-        // Aquí se pueden añadir proxies si es necesario
-    }
-    
-    /**
-     * Obtiene un user agent aleatorio
-     */
-    private function getRandomUserAgent(): string
-    {
-        return $this->userAgents[array_rand($this->userAgents)];
+        file_put_contents($progressFile, json_encode($progressData));
+        
+        $this->logger->info("Progreso actualizado: {$progress}% - {$message}");
     }
 }
 

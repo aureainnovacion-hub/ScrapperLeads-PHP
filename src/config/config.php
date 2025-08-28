@@ -63,6 +63,9 @@ class Config
                 'prefix' => $_ENV['DB_PREFIX'] ?? 'sl_',
                 'charset' => $_ENV['DB_CHARSET'] ?? 'utf8mb4',
             ],
+            'google' => [
+                'places_api_key' => $_ENV['GOOGLE_PLACES_API_KEY'] ?? 'AIzaSyBvOkBwAqITJ5ohHXbQmk2dEwKI2cU_-dM'
+            ],
             'scraper' => [
                 'max_results' => (int)($_ENV['SCRAPER_MAX_RESULTS'] ?? 100),
                 'timeout' => (int)($_ENV['SCRAPER_TIMEOUT'] ?? 30),
