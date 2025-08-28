@@ -64,7 +64,7 @@ class Config
                 'charset' => $_ENV['DB_CHARSET'] ?? 'utf8mb4',
             ],
             'google' => [
-                'places_api_key' => $_ENV['GOOGLE_PLACES_API_KEY'] ?? 'AIzaSyBvOkBwAqITJ5ohHXbQmk2dEwKI2cU_-dM'
+                'places_api_key' => $_ENV['GOOGLE_PLACES_API_KEY'] ?? 'AIzaSyCaSn90pqbvedVovr3336MQsuDn3_LGSyA'
             ],
             'scraper' => [
                 'max_results' => (int)($_ENV['SCRAPER_MAX_RESULTS'] ?? 100),
