@@ -57,9 +57,9 @@ class Config
             'database' => [
                 'host' => $_ENV['DB_HOST'] ?? 'localhost',
                 'port' => $_ENV['DB_PORT'] ?? '3306',
-                'name' => $_ENV['DB_NAME'] ?? 'scrapper_leads',
-                'user' => $_ENV['DB_USER'] ?? 'root',
-                'password' => $_ENV['DB_PASSWORD'] ?? '',
+                'name' => $_ENV['DB_NAME'] ?? 'scrapperleads',
+                'user' => $_ENV['DB_USER'] ?? 'eduai_',
+                'password' => $_ENV['DB_PASSWORD'] ?? 'Mm492557**',
                 'prefix' => $_ENV['DB_PREFIX'] ?? 'sl_',
                 'charset' => $_ENV['DB_CHARSET'] ?? 'utf8mb4',
             ],
