@@ -110,13 +110,24 @@ class Deployer
     {
         echo "📤 Subiendo archivos...\n";
         
-        $sourceDir = __DIR__ . '/../../src';
+        $baseDir = __DIR__ . '/../../';
         $targetDir = $this->config->get('ftp.path');
+
+        // Subir directorios principales
+        $this->uploadDirectory($baseDir . 'src', $targetDir . 'src');
+        $this->uploadDirectory($baseDir . 'vendor', $targetDir . 'vendor');
+        $this->uploadDirectory($baseDir . 'database', $targetDir . 'database');
         
-        $this->uploadDirectory($sourceDir, $targetDir);
-        
+        // Subir ficheros raíz importantes
+        $rootFiles = ['composer.json', 'composer.lock'];
+        foreach ($rootFiles as $file) {
+            if (file_exists($baseDir . $file)) {
+                ftp_put($this->ftpConnection, $targetDir . $file, $baseDir . $file, FTP_ASCII);
+            }
+        }
+
         // Subir archivos de configuración específicos del entorno
-        $envFile = __DIR__ . "/../../environments/{$this->environment}/.env";
+        $envFile = $baseDir . "environments/{$this->environment}/.env";
         if (file_exists($envFile)) {
             ftp_put($this->ftpConnection, $targetDir . '.env', $envFile, FTP_ASCII);
         }
@@ -178,24 +189,38 @@ class Deployer
     {
         echo "🗄️ Ejecutando migraciones...\n";
         
-        // Crear archivo temporal para ejecutar migraciones remotamente
+        $runnerName = 'runner_migration.php';
+        $remoteRunnerPath = $this->config->get('ftp.path') . $runnerName;
+        $localRunnerPath = '/tmp/' . $runnerName;
+
+        // Script que se ejecutará en el servidor
         $migrationScript = "<?php\n";
-        $migrationScript .= "require_once 'config/config.php';\n";
-        $migrationScript .= "require_once 'database/migrate.php';\n";
-        $migrationScript .= "echo 'Migraciones ejecutadas';\n";
+        $migrationScript .= "ini_set('display_errors', 1);\n";
+        $migrationScript .= "error_reporting(E_ALL);\n";
+        $migrationScript .= "require_once 'vendor/autoload.php';\n";
+        $migrationScript .= "require_once 'src/database/migrate.php';\n";
+        $migrationScript .= "\$migration = new DatabaseMigration();\n";
+        $migrationScript .= "\$migration->migrate();\n";
+        $migrationScript .= "echo 'MIGRATION_SUCCESS';\n";
+
+        file_put_contents($localRunnerPath, $migrationScript);
         
-        file_put_contents('/tmp/run_migrations.php', $migrationScript);
+        // Subir el script
+        if (!ftp_put($this->ftpConnection, $remoteRunnerPath, $localRunnerPath, FTP_ASCII)) {
+            throw new Exception("No se pudo subir el script de migración.");
+        }
         
-        $remotePath = $this->config->get('ftp.path') . 'run_migrations.php';
-        ftp_put($this->ftpConnection, $remotePath, '/tmp/run_migrations.php', FTP_ASCII);
-        
-        // Ejecutar via HTTP (si es posible)
-        $url = $this->config->get('app.url') . '/run_migrations.php';
+        // Ejecutar via HTTP
+        $url = $this->config->get('app.url') . '/' . $runnerName;
         $response = @file_get_contents($url);
         
-        // Limpiar archivo temporal
-        ftp_delete($this->ftpConnection, $remotePath);
-        unlink('/tmp/run_migrations.php');
+        // Limpiar
+        ftp_delete($this->ftpConnection, $remoteRunnerPath);
+        unlink($localRunnerPath);
+
+        if ($response === false || strpos($response, 'MIGRATION_SUCCESS') === false) {
+            throw new Exception("Falló la ejecución de la migración remota. Respuesta: " . ($response ?: 'ninguna'));
+        }
         
         echo "✓ Migraciones completadas\n";
     }

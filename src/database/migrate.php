@@ -24,18 +24,19 @@ class DatabaseMigration
     private function connectDatabase()
     {
         try {
-            // Configuración específica para Dinahosting
+            $dbConfig = $this->config->get('database');
+
             $dsn = sprintf(
                 'mysql:host=%s;dbname=%s;charset=%s',
-                'localhost', // Dinahosting usa localhost
-                'eduai_scrapperleads', // Nombre completo de la BD
-                'utf8mb4'
+                $dbConfig['host'],
+                $dbConfig['name'],
+                $dbConfig['charset']
             );
 
             $this->pdo = new PDO(
                 $dsn,
-                'eduai_', // Usuario de la BD
-                'Mm492557**', // Contraseña de la BD
+                $dbConfig['user'],
+                $dbConfig['password'],
                 [
                     PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
                     PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
@@ -44,7 +45,7 @@ class DatabaseMigration
                 ]
             );
 
-            echo "✅ Conexión a base de datos MariaDB establecida\n";
+            echo "✅ Conexión a base de datos MariaDB establecida con configuración de entorno.\n";
         } catch (PDOException $e) {
             die("❌ Error de conexión: " . $e->getMessage() . "\n");
         }
