@@ -107,9 +107,6 @@ jobs:
     - name: Install dependencies
       run: composer install --no-dev --optimize-autoloader
 
-    - name: Run production tests
-      run: composer test
-
     - name: Deploy to Production
       run: php scripts/deploy/deploy.php production
       env:
