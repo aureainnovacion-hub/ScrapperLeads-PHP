@@ -9,7 +9,6 @@ header('Access-Control-Allow-Origin: *');
 header('Access-Control-Allow-Methods: GET, POST, OPTIONS');
 header('Access-Control-Allow-Headers: Content-Type');
 
-// Manejar preflight requests
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     http_response_code(200);
     exit();
@@ -24,21 +23,20 @@ use ScrapperLeads\Utils\Logger;
 try {
     $config = Config::getInstance();
     $logger = new Logger();
-    
+
     $method = $_SERVER['REQUEST_METHOD'];
     $path = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
     $pathParts = explode('/', trim($path, '/'));
-    
-    // Routing básico
+
     switch ($method) {
         case 'POST':
             if (end($pathParts) === 'csv') {
-                handleCSVExport();
+                handleCSVExport($logger);
             } else {
                 throw new Exception('Endpoint no encontrado');
             }
             break;
-            
+
         case 'GET':
             if (end($pathParts) === 'formats') {
                 handleGetFormats();
@@ -46,12 +44,14 @@ try {
                 throw new Exception('Endpoint no encontrado');
             }
             break;
-            
+
         default:
             throw new Exception('Método no permitido');
     }
-    
 } catch (Exception $e) {
+    if (!isset($logger)) {
+        $logger = new Logger();
+    }
     $logger->error('Export API Error: ' . $e->getMessage());
     http_response_code(500);
     header('Content-Type: application/json');
@@ -64,56 +64,36 @@ try {
 /**
  * Maneja la exportación a CSV
  */
-function handleCSVExport(): void
+function handleCSVExport(Logger $logger): void
 {
-    global $logger;
-    
-    // Obtener datos del POST
     $input = json_decode(file_get_contents('php://input'), true);
-    
+
     if (!$input || !isset($input['data']) || !is_array($input['data'])) {
         throw new Exception('Datos requeridos para exportación');
     }
-    
+
     $data = $input['data'];
     $filename = $input['filename'] ?? 'leads_export_' . date('Y-m-d_H-i-s') . '.csv';
-    
+
     $logger->info('Exportando ' . count($data) . ' leads a CSV');
-    
-    // Configurar headers para descarga
+
     header('Content-Type: text/csv; charset=utf-8');
     header('Content-Disposition: attachment; filename="' . $filename . '"');
     header('Cache-Control: no-cache, must-revalidate');
     header('Expires: Sat, 26 Jul 1997 05:00:00 GMT');
-    
-    // Crear output stream
+
     $output = fopen('php://output', 'w');
-    
-    // Añadir BOM para UTF-8 (para Excel)
-    fprintf($output, chr(0xEF).chr(0xBB).chr(0xBF));
-    
-    // Headers del CSV
+
+    fprintf($output, chr(0xEF) . chr(0xBB) . chr(0xBF));
+
     $headers = [
-        'Empresa',
-        'URL',
-        'Descripción',
-        'Teléfono',
-        'Email',
-        'Dirección',
-        'Empleados',
-        'Facturación',
-        'Sector',
-        'Provincia',
-        'Región',
-        'Fecha Captura',
-        'Fuente',
-        'Estado',
-        'Notas'
+        'Empresa', 'URL', 'Descripción', 'Teléfono', 'Email', 'Dirección',
+        'Empleados', 'Facturación', 'Sector', 'Provincia', 'Región',
+        'Fecha Captura', 'Fuente', 'Estado', 'Notas'
     ];
-    
-    fputcsv($output, $headers, ';'); // Usar punto y coma para compatibilidad con Excel español
-    
-    // Datos
+
+    fputcsv($output, $headers, ';');
+
     foreach ($data as $lead) {
         $row = [
             $lead['empresa'] ?? '',
@@ -132,12 +112,11 @@ function handleCSVExport(): void
             $lead['estado'] ?? 'activo',
             $lead['notas'] ?? ''
         ];
-        
         fputcsv($output, $row, ';');
     }
-    
+
     fclose($output);
-    
+
     $logger->info('Exportación CSV completada: ' . $filename);
 }
 
@@ -147,7 +126,7 @@ function handleCSVExport(): void
 function handleGetFormats(): void
 {
     header('Content-Type: application/json');
-    
+
     $formats = [
         'csv' => [
             'name' => 'CSV (Comma Separated Values)',
@@ -160,7 +139,7 @@ function handleGetFormats(): void
             'description' => 'Formato nativo de Microsoft Excel',
             'extension' => 'xlsx',
             'mime_type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-            'available' => false // Requiere librerías adicionales
+            'available' => false
         ],
         'json' => [
             'name' => 'JSON',
@@ -169,10 +148,9 @@ function handleGetFormats(): void
             'mime_type' => 'application/json'
         ]
     ];
-    
+
     echo json_encode([
         'success' => true,
         'formats' => $formats
     ]);
 }
-

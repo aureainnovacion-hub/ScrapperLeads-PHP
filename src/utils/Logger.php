@@ -9,27 +9,26 @@ class Logger
 {
     private $logPath;
     private $logLevel;
-    
-    const LEVELS = [
+
+    public const LEVELS = [
         'DEBUG' => 0,
         'INFO' => 1,
         'WARNING' => 2,
         'ERROR' => 3,
         'CRITICAL' => 4
     ];
-    
+
     public function __construct(string $logPath = null, string $logLevel = 'INFO')
     {
         $this->logPath = $logPath ?: dirname(__DIR__, 2) . '/logs/app.log';
         $this->logLevel = strtoupper($logLevel);
-        
-        // Crear directorio de logs si no existe
+
         $logDir = dirname($this->logPath);
         if (!is_dir($logDir)) {
             mkdir($logDir, 0755, true);
         }
     }
-    
+
     /**
      * Log de debug
      */
@@ -37,7 +36,7 @@ class Logger
     {
         $this->log('DEBUG', $message, $context);
     }
-    
+
     /**
      * Log de información
      */
@@ -45,7 +44,7 @@ class Logger
     {
         $this->log('INFO', $message, $context);
     }
-    
+
     /**
      * Log de advertencia
      */
@@ -53,7 +52,7 @@ class Logger
     {
         $this->log('WARNING', $message, $context);
     }
-    
+
     /**
      * Log de error
      */
@@ -61,7 +60,7 @@ class Logger
     {
         $this->log('ERROR', $message, $context);
     }
-    
+
     /**
      * Log crítico
      */
@@ -69,31 +68,28 @@ class Logger
     {
         $this->log('CRITICAL', $message, $context);
     }
-    
+
     /**
      * Método principal de logging
      */
     private function log(string $level, string $message, array $context = []): void
     {
-        // Verificar si el nivel es suficiente para logear
         if (self::LEVELS[$level] < self::LEVELS[$this->logLevel]) {
             return;
         }
-        
+
         $timestamp = date('Y-m-d H:i:s');
         $contextStr = !empty($context) ? ' ' . json_encode($context) : '';
-        
+
         $logEntry = "[{$timestamp}] {$level}: {$message}{$contextStr}" . PHP_EOL;
-        
-        // Escribir al archivo de log
+
         file_put_contents($this->logPath, $logEntry, FILE_APPEND | LOCK_EX);
-        
-        // En desarrollo, también mostrar en pantalla
+
         if (isset($_ENV['APP_ENV']) && $_ENV['APP_ENV'] === 'development') {
             echo $logEntry;
         }
     }
-    
+
     /**
      * Limpia logs antiguos
      */
@@ -101,14 +97,14 @@ class Logger
     {
         $logDir = dirname($this->logPath);
         $files = glob($logDir . '/*.log');
-        
+
         foreach ($files as $file) {
             if (filemtime($file) < time() - ($daysToKeep * 24 * 60 * 60)) {
                 unlink($file);
             }
         }
     }
-    
+
     /**
      * Obtiene las últimas líneas del log
      */
@@ -117,9 +113,8 @@ class Logger
         if (!file_exists($this->logPath)) {
             return [];
         }
-        
+
         $file = file($this->logPath);
         return array_slice($file, -$lines);
     }
 }
-
