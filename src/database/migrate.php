@@ -6,6 +6,8 @@
  * Hosting: Dinahosting MariaDB 11.4
  */
 
+require_once __DIR__ . '/../../vendor/autoload.php';
+
 require_once __DIR__ . '/../config/config.php';
 
 use ScrapperLeads\Config\Config;
@@ -24,19 +26,18 @@ class DatabaseMigration
     private function connectDatabase()
     {
         try {
-            $dbConfig = $this->config->get('database');
-
+            // Configuración específica para Dinahosting
             $dsn = sprintf(
                 'mysql:host=%s;dbname=%s;charset=%s',
-                $dbConfig['host'],
-                $dbConfig['name'],
-                $dbConfig['charset']
+                'localhost', // Dinahosting usa localhost
+                'eduai_scrapperleads', // Nombre completo de la BD
+                'utf8mb4'
             );
 
             $this->pdo = new PDO(
                 $dsn,
-                $dbConfig['user'],
-                $dbConfig['password'],
+                'eduai_', // Usuario de la BD
+                'Mm492557**', // Contraseña de la BD
                 [
                     PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
                     PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
@@ -45,7 +46,7 @@ class DatabaseMigration
                 ]
             );
 
-            echo "✅ Conexión a base de datos MariaDB establecida con configuración de entorno.\n";
+            echo "✅ Conexión a base de datos MariaDB establecida\n";
         } catch (PDOException $e) {
             die("❌ Error de conexión: " . $e->getMessage() . "\n");
         }

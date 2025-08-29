@@ -45,7 +45,7 @@ jobs:
       run: cp environments/development/.env.example .env
 
     - name: Run database migrations
-      run: php src/database/migrate.php
+      run: php scripts/database/migrate.php
       env:
         DB_HOST: 127.0.0.1
         DB_PORT: 3306
@@ -104,6 +104,9 @@ jobs:
 
     - name: Install dependencies
       run: composer install --no-dev --optimize-autoloader
+
+    - name: Run production tests
+      run: composer test
 
     - name: Deploy to Production
       run: php scripts/deploy/deploy.php production
