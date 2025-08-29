@@ -2,7 +2,7 @@
 /**
  * ScrapperLeads PHP - Punto de entrada principal
  * Sistema profesional de captura de leads empresariales
- * 
+ *
  * @author AUREA INNOVACION
  * @version 1.0.0
  */
@@ -12,25 +12,21 @@ error_reporting(E_ALL);
 ini_set('display_errors', 0);
 ini_set('log_errors', 1);
 
-// Autoloader manual
-require_once __DIR__ . '/config/config.php';
+// Autoloader y configuración
+require_once __DIR__ . '/../vendor/autoload.php';
+require_once __DIR__ . '/Config/Config.php';
 
-// Configuración
 use ScrapperLeads\Config\Config;
 
 try {
     $config = Config::getInstance();
-    
-    // Configurar zona horaria
+
     date_default_timezone_set($config->get('app.timezone', 'Europe/Madrid'));
-    
-    // Mostrar errores solo en desarrollo
+
     if ($config->isDevelopment()) {
         ini_set('display_errors', 1);
     }
-    
 } catch (Exception $e) {
-    // Fallback si no se puede cargar la configuración
     error_log("Error loading configuration: " . $e->getMessage());
 }
 
@@ -41,17 +37,17 @@ try {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ScrapperLeads Pro - Captura de Leads Empresariales</title>
-    
+
     <!-- Bootstrap CSS -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    
+
     <!-- Font Awesome -->
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
-    
+
     <!-- Select2 para selección múltiple -->
     <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/select2-bootstrap-5-theme@1.3.0/dist/select2-bootstrap-5-theme.min.css" rel="stylesheet">
-    
+
     <!-- CSS personalizado -->
     <link href="assets/css/app.css" rel="stylesheet">
 </head>
@@ -75,7 +71,8 @@ try {
         <!-- Alerta de Bienvenida -->
         <div class="alert alert-info alert-dismissible fade show" role="alert">
             <i class="fas fa-info-circle me-2"></i>
-            <strong>Bienvenido a ScrapperLeads Pro</strong> - Sistema profesional de captura de leads empresariales con filtros avanzados.
+            <strong>Bienvenido a ScrapperLeads Pro</strong>
+            - Sistema profesional de captura de leads empresariales con filtros avanzados.
             <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
         </div>
 
@@ -97,9 +94,11 @@ try {
                                     <i class="fas fa-key me-1"></i>
                                     Palabras Clave
                                 </label>
-                                <input type="text" class="form-control" id="keywords" 
+                                <input type="text" class="form-control" id="keywords"
                                        placeholder="ej: software, marketing digital, consultoría">
-                                <div class="form-text">Términos principales de búsqueda (opcional, para afinar resultados)</div>
+                                <div class="form-text">
+                                    Términos principales de búsqueda (opcional, para afinar resultados)
+                                </div>
                             </div>
 
                             <!-- Sector Empresarial -->
@@ -110,7 +109,9 @@ try {
                                 </label>
                                 <select class="form-select" id="sector" multiple>
                                     <optgroup label="Agricultura y Ganadería">
-                                        <option value="01">Agricultura, ganadería, caza y servicios relacionados</option>
+                                        <option value="01">
+                                            Agricultura, ganadería, caza y servicios relacionados
+                                        </option>
                                         <option value="02">Silvicultura y explotación forestal</option>
                                         <option value="03">Pesca y acuicultura</option>
                                     </optgroup>
@@ -133,10 +134,16 @@ try {
                                         <option value="20">Industria química</option>
                                         <option value="21">Fabricación de productos farmacéuticos</option>
                                         <option value="22">Fabricación de productos de caucho y plásticos</option>
-                                        <option value="23">Fabricación de otros productos minerales no metálicos</option>
-                                        <option value="24">Metalurgia; fabricación de productos de hierro, acero y ferroaleaciones</option>
+                                        <option value="23">
+                                            Fabricación de otros productos minerales no metálicos
+                                        </option>
+                                        <option value="24">
+                                            Metalurgia; fabricación de productos de hierro, acero y ferroaleaciones
+                                        </option>
                                         <option value="25">Fabricación de productos metálicos</option>
-                                        <option value="26">Fabricación de productos informáticos, electrónicos y ópticos</option>
+                                        <option value="26">
+                                            Fabricación de productos informáticos, electrónicos y ópticos
+                                        </option>
                                         <option value="27">Fabricación de material y equipo eléctrico</option>
                                         <option value="28">Fabricación de maquinaria y equipo n.c.o.p.</option>
                                         <option value="29">Fabricación de vehículos de motor</option>
@@ -146,11 +153,15 @@ try {
                                         <option value="33">Reparación e instalación de maquinaria y equipo</option>
                                     </optgroup>
                                     <optgroup label="Energía y Agua">
-                                        <option value="35">Suministro de energía eléctrica, gas, vapor y aire acondicionado</option>
+                                        <option value="35">
+                                            Suministro de energía eléctrica, gas, vapor y aire acondicionado
+                                        </option>
                                         <option value="36">Captación, depuración y distribución de agua</option>
                                         <option value="37">Recogida y tratamiento de aguas residuales</option>
                                         <option value="38">Valorización</option>
-                                        <option value="39">Descontaminación y otros servicios de gestión de residuos</option>
+                                        <option value="39">
+                                            Descontaminación y otros servicios de gestión de residuos
+                                        </option>
                                     </optgroup>
                                     <optgroup label="Construcción">
                                         <option value="41">Construcción de edificios</option>
@@ -158,7 +169,9 @@ try {
                                         <option value="43">Actividades de construcción especializada</option>
                                     </optgroup>
                                     <optgroup label="Comercio">
-                                        <option value="45">Venta y reparación de vehículos de motor y motocicletas</option>
+                                        <option value="45">
+                                            Venta y reparación de vehículos de motor y motocicletas
+                                        </option>
                                         <option value="46">Comercio al por mayor e intermediarios del comercio</option>
                                         <option value="47">Comercio al por menor</option>
                                     </optgroup>
@@ -176,26 +189,36 @@ try {
                                     <optgroup label="Información y Comunicaciones">
                                         <option value="58">Edición</option>
                                         <option value="59">Actividades cinematográficas, de vídeo y de televisión</option>
-                                        <option value="60">Actividades de programación y emisión de radio y televisión</option>
+                                        <option value="60">
+                                            Actividades de programación y emisión de radio y televisión
+                                        </option>
                                         <option value="61">Telecomunicaciones</option>
-                                        <option value="62">Programación, consultoría y otras actividades relacionadas con la informática</option>
+                                        <option value="62">
+                                            Programación, consultoría y otras actividades relacionadas con la informática
+                                        </option>
                                         <option value="63">Servicios de información</option>
                                     </optgroup>
                                     <optgroup label="Actividades Financieras y de Seguros">
                                         <option value="64">Servicios financieros</option>
                                         <option value="65">Seguros, reaseguros y fondos de pensiones</option>
-                                        <option value="66">Actividades auxiliares a los servicios financieros y a los seguros</option>
+                                        <option value="66">
+                                            Actividades auxiliares a los servicios financieros y a los seguros
+                                        </option>
                                     </optgroup>
                                     <optgroup label="Actividades Inmobiliarias">
                                         <option value="68">Actividades inmobiliarias</option>
                                     </optgroup>
                                     <optgroup label="Actividades Profesionales, Científicas y Técnicas">
                                         <option value="69">Actividades jurídicas y de contabilidad</option>
-                                        <option value="70">Actividades de las sedes centrales; actividades de consultoría de gestión empresarial</option>
+                                        <option value="70">
+                                            Actividades de las sedes centrales; consultoría de gestión empresarial
+                                        </option>
                                         <option value="71">Servicios técnicos de arquitectura e ingeniería</option>
                                         <option value="72">Investigación y desarrollo</option>
                                         <option value="73">Publicidad y estudios de mercado</option>
-                                        <option value="74">Otras actividades profesionales, científicas y técnicas</option>
+                                        <option value="74">
+                                            Otras actividades profesionales, científicas y técnicas
+                                        </option>
                                         <option value="75">Actividades veterinarias</option>
                                     </optgroup>
                                     <optgroup label="Actividades Administrativas y Servicios Auxiliares">
@@ -204,7 +227,9 @@ try {
                                         <option value="79">Actividades de agencias de viajes</option>
                                         <option value="80">Actividades de seguridad e investigación</option>
                                         <option value="81">Servicios a edificios y actividades de jardinería</option>
-                                        <option value="82">Actividades administrativas de oficina y otras actividades auxiliares</option>
+                                        <option value="82">
+                                            Actividades administrativas de oficina y otras actividades auxiliares
+                                        </option>
                                     </optgroup>
                                     <optgroup label="Administración Pública">
                                         <option value="84">Administración Pública y defensa</option>
@@ -225,7 +250,9 @@ try {
                                     </optgroup>
                                     <optgroup label="Otros Servicios">
                                         <option value="94">Actividades asociativas</option>
-                                        <option value="95">Reparación de ordenadores, efectos personales y artículos de uso doméstico</option>
+                                        <option value="95">
+                                            Reparación de ordenadores, efectos personales y artículos de uso doméstico
+                                        </option>
                                         <option value="96">Otros servicios personales</option>
                                     </optgroup>
                                 </select>
@@ -352,7 +379,7 @@ try {
                                     <i class="fas fa-list-ol me-1"></i>
                                     Número de Resultados
                                 </label>
-                                <input type="number" class="form-control" id="numResults" 
+                                <input type="number" class="form-control" id="numResults"
                                        value="20" min="1" max="1000">
                                 <div class="form-text">Máximo: 1000 resultados</div>
                             </div>
@@ -407,4 +434,3 @@ try {
     <script src="assets/js/app.js"></script>
 </body>
 </html>
-
