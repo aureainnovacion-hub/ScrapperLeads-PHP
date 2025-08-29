@@ -23,9 +23,12 @@
         "phpstan/phpstan": "^1.8"
     },
     "autoload": {
-        "psr-4": {
-            "ScrapperLeads\\": "src/"
-        }
+        "classmap": [
+            "src/config/config.php",
+            "src/database/migrate.php",
+            "src/utils/GoogleScraper.php",
+            "src/utils/Logger.php"
+        ]
     },
     "autoload-dev": {
         "psr-4": {
@@ -34,10 +37,10 @@
     },
     "scripts": {
         "test": "phpunit",
-        "test:unit": "phpunit tests/unit",
-        "test:integration": "phpunit tests/integration",
-        "lint": "phpcs --standard=PSR12 src/",
-        "lint:fix": "phpcbf --standard=PSR12 src/",
+        "test:unit": "phpunit --testsuite Unit",
+        "test:integration": "phpunit --testsuite Integration",
+        "lint": "phpcs --standard=PSR12 --extensions=php --exclude=PSR12.Files.FileHeader -n src/",
+        "lint:fix": "phpcbf --standard=PSR12 --extensions=php src/",
         "analyze": "phpstan analyse src/",
         "deploy:staging": "php scripts/deploy/deploy.php staging",
         "deploy:production": "php scripts/deploy/deploy.php production",

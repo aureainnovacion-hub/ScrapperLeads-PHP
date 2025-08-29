@@ -26,18 +26,15 @@ class Config
     private function loadEnvironment(): void
     {
         $envPath = dirname(__DIR__, 2);
-        
-        // Detectar entorno
+
         $environment = $_ENV['APP_ENV'] ?? 'development';
-        
-        // Cargar archivo .env específico del entorno si existe
+
         $envFile = $envPath . "/environments/{$environment}/.env";
         if (file_exists($envFile)) {
             $dotenv = Dotenv::createImmutable(dirname($envFile));
             $dotenv->load();
         }
-        
-        // Cargar .env principal como fallback
+
         if (file_exists($envPath . '/.env')) {
             $dotenv = Dotenv::createImmutable($envPath);
             $dotenv->load();
@@ -136,4 +133,3 @@ class Config
         return $this->get('app.env') === 'staging';
     }
 }
-

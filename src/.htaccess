@@ -9,24 +9,20 @@ RewriteRule ^api/export\.php/(.*)$ api/export.php [L,QSA]
 
 # Configuración de seguridad
 <Files "*.php">
-    Order Allow,Deny
-    Allow from all
+    Require all granted
 </Files>
 
 # Proteger archivos de configuración
 <Files ".env">
-    Order Allow,Deny
-    Deny from all
+    Require all denied
 </Files>
 
 <Files "composer.json">
-    Order Allow,Deny
-    Deny from all
+    Require all denied
 </Files>
 
 <Files "composer.lock">
-    Order Allow,Deny
-    Deny from all
+    Require all denied
 </Files>
 
 # Configuración de cache para assets estáticos

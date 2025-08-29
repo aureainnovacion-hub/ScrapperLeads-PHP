@@ -45,7 +45,7 @@ jobs:
       run: cp environments/development/.env.example .env
 
     - name: Run database migrations
-      run: php scripts/database/migrate.php
+      run: php src/database/migrate.php
       env:
         DB_HOST: 127.0.0.1
         DB_PORT: 3306
@@ -68,7 +68,7 @@ jobs:
   deploy-staging:
     needs: test
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/develop'
+    if: github.ref == 'refs/heads/develop' && github.event_name == 'push'
     
     steps:
     - uses: actions/checkout@v3
@@ -92,7 +92,7 @@ jobs:
   deploy-production:
     needs: test
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     
     steps:
     - uses: actions/checkout@v3
