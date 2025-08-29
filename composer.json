@@ -23,9 +23,12 @@
         "phpstan/phpstan": "^1.8"
     },
     "autoload": {
-        "psr-4": {
-            "ScrapperLeads\\": "src/"
-        }
+        "classmap": [
+            "src/config/config.php",
+            "src/database/migrate.php",
+            "src/utils/GoogleScraper.php",
+            "src/utils/Logger.php"
+        ]
     },
     "autoload-dev": {
         "psr-4": {
