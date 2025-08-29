@@ -98,19 +98,54 @@ function handleStartScraping(Config $config, Logger $logger): void
         'maxResults' => min((int)($input['maxResults'] ?? 20), $config->get('scraper.max_results', 1000))
     ];
 
-    $logger->info('Iniciando scraping con parámetros: ' . json_encode($params));
+    $searchId = uniqid('scrape_', true);
+    $logger->info("Generado searchId: {$searchId} con parámetros: " . json_encode($params));
 
-    $scraper = new GoogleScraper($config);
-    $sessionId = uniqid('scrape_', true);
-    $results = $scraper->searchLeads($params, $sessionId);
+    // Desactivar el aborto del script si el usuario se desconecta
+    ignore_user_abort(true);
+    set_time_limit(0); // Sin límite de tiempo de ejecución
 
+    // Iniciar el buffer de salida
+    ob_start();
+
+    // Enviar respuesta inmediata al cliente
     echo json_encode([
         'success' => true,
-        'searchId' => $sessionId,
-        'message' => 'Scraping iniciado correctamente',
-        'results' => $results,
-        'totalFound' => count($results)
+        'searchId' => $searchId,
+        'message' => 'Scraping iniciado. El proceso se ejecutará en segundo plano.'
     ]);
+
+    // Enviar cabeceras para cerrar la conexión
+    header('Connection: close');
+    header('Content-Length: ' . ob_get_length());
+    ob_end_flush();
+    @ob_flush();
+    flush();
+
+    // Finalizar la solicitud si es posible (para FPM)
+    if (function_exists('fastcgi_finish_request')) {
+        fastcgi_finish_request();
+    }
+
+    // --- El script continúa ejecutándose aquí después de que el cliente se haya ido ---
+
+    try {
+        $scraper = new GoogleScraper($config);
+        $scraper->searchLeads($params, $searchId);
+    } catch (Exception $e) {
+        $logger->error("Scraping en segundo plano falló para searchId {$searchId}: " . $e->getMessage());
+        // Actualizar el estado a 'failed'
+        $progressFile = sys_get_temp_dir() . "/scraper_progress_{$searchId}.json";
+        $progressData = [
+            'sessionId' => $searchId,
+            'progress' => 0,
+            'message' => 'Error crítico durante el scraping: ' . $e->getMessage(),
+            'status' => 'failed',
+            'timestamp' => date('Y-m-d H:i:s'),
+            'stats' => []
+        ];
+        file_put_contents($progressFile, json_encode($progressData));
+    }
 }
 
 /**
@@ -144,13 +179,13 @@ function handleStopScraping(): void
  */
 function handleGetProgress(): void
 {
-    $sessionId = $_GET['sessionId'] ?? '';
+    $searchId = $_GET['searchId'] ?? '';
 
-    if (empty($sessionId)) {
-        throw new Exception('Session ID requerido');
+    if (empty($searchId)) {
+        throw new Exception('Search ID requerido');
     }
 
-    $progressFile = sys_get_temp_dir() . "/scraper_progress_{$sessionId}.json";
+    $progressFile = sys_get_temp_dir() . "/scraper_progress_{$searchId}.json";
 
     if (!file_exists($progressFile)) {
         echo json_encode([
