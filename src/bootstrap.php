@@ -12,15 +12,13 @@
 // Cargar el autoloader de Composer para tener acceso a las librerías
 require_once __DIR__ . '/../vendor/autoload.php';
 
-use ScrapperLeads\Config\Config;
-
 // Configuración de errores según el entorno
 error_reporting(E_ALL);
 ini_set('display_errors', 0);
 ini_set('log_errors', 1);
 
 try {
-    $config = Config::getInstance();
+    $config = \ScrapperLeads\Config\Config::getInstance();
 
     date_default_timezone_set($config->get('app.timezone', 'Europe/Madrid'));
 
