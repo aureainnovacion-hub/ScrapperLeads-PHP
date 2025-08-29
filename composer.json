@@ -39,7 +39,7 @@
         "test": "phpunit",
         "test:unit": "phpunit tests/unit",
         "test:integration": "phpunit tests/integration",
-        "lint": "phpcs --standard=PSR12 --extensions=php --exclude=PSR12.Files.FileHeader.SpacingAfterBlock src/",
+        "lint": "phpcs --standard=PSR12 --extensions=php --exclude=PSR12.Files.FileHeader src/",
         "lint:fix": "phpcbf --standard=PSR12 --extensions=php src/",
         "analyze": "phpstan analyse src/",
         "deploy:staging": "php scripts/deploy/deploy.php staging",
