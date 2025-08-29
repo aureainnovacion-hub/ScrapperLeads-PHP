@@ -2,37 +2,11 @@
 /**
  * ScrapperLeads PHP - Punto de entrada principal
  *
- * Sistema profesional de captura de leads empresariales.
- *
  * @author AUREA INNOVACION
  * @version 1.0.0
  */
 
-require_once __DIR__ . '/../vendor/autoload.php';
-
-use ScrapperLeads\Config\Config;
-
-// Configuración de errores según el entorno
-error_reporting(E_ALL);
-ini_set('display_errors', 0);
-ini_set('log_errors', 1);
-
-try {
-    $config = Config::getInstance();
-
-    date_default_timezone_set($config->get('app.timezone', 'Europe/Madrid'));
-
-    if ($config->isDevelopment()) {
-        ini_set('display_errors', 1);
-    }
-} catch (Exception $e) {
-    // Fallback si no se puede cargar la configuración
-    error_log("Error loading configuration: " . $e->getMessage());
-    // Terminar de forma segura si la configuración falla
-    http_response_code(503);
-    echo "Service Unavailable";
-    exit;
-}
+$config = require_once __DIR__ . '/bootstrap.php';
 
 ?>
 <!DOCTYPE html>
