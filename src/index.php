@@ -1,22 +1,21 @@
 <?php
 /**
  * ScrapperLeads PHP - Punto de entrada principal
- * Sistema profesional de captura de leads empresariales
+ *
+ * Sistema profesional de captura de leads empresariales.
  *
  * @author AUREA INNOVACION
  * @version 1.0.0
  */
 
+require_once __DIR__ . '/../vendor/autoload.php';
+
+use ScrapperLeads\Config\Config;
+
 // Configuración de errores según el entorno
 error_reporting(E_ALL);
 ini_set('display_errors', 0);
 ini_set('log_errors', 1);
-
-// Autoloader y configuración
-require_once __DIR__ . '/../vendor/autoload.php';
-require_once __DIR__ . '/Config/Config.php';
-
-use ScrapperLeads\Config\Config;
 
 try {
     $config = Config::getInstance();
@@ -27,7 +26,12 @@ try {
         ini_set('display_errors', 1);
     }
 } catch (Exception $e) {
+    // Fallback si no se puede cargar la configuración
     error_log("Error loading configuration: " . $e->getMessage());
+    // Terminar de forma segura si la configuración falla
+    http_response_code(503);
+    echo "Service Unavailable";
+    exit;
 }
 
 ?>
@@ -46,7 +50,8 @@ try {
 
     <!-- Select2 para selección múltiple -->
     <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet">
-    <link href="https://cdn.jsdelivr.net/npm/select2-bootstrap-5-theme@1.3.0/dist/select2-bootstrap-5-theme.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/select2-bootstrap-5-theme@1.3.0/dist/select2-bootstrap-5-theme.min.css"
+          rel="stylesheet">
 
     <!-- CSS personalizado -->
     <link href="assets/css/app.css" rel="stylesheet">
